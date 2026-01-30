@@ -1,0 +1,38 @@
+# macOS
+.DS_Store
+
+# Editor directories and files
+.idea/
+.vscode/
+*.swp
+
+# Go build artifacts
+/bin/
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Vendor (if used)
+/vendor/
+
+# Local environment files (do not commit real tokens)
+.env
+.env.local
+
+# Logs
+*.log
+logs/
+
+# Node / web build artifacts (the repo contains a website folder)
+**/node_modules/
+**/dist/
+**/build/
+**/.next/
+**/.next/*
+
+# Misc
+coverage.out
+*.coverprofile

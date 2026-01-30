@@ -1,0 +1,8 @@
+project/node_modules
+project/.next
+project/dist
+project/npm-debug.log
+project/.git
+project/.gitignore
+project/.env
+project/.DS_Store

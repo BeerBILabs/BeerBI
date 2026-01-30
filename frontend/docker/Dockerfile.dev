@@ -1,0 +1,15 @@
+FROM oven/bun:latest AS deps
+
+WORKDIR /app/beerbot
+
+COPY project/package.json ./
+COPY project/bun.lock ./
+
+RUN bun install --frozen-lockfile
+
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV NODE_ENV=development
+
+EXPOSE 3000
+
+CMD [ "bun", "run", "dev" ]

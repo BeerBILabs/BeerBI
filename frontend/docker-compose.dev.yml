@@ -1,0 +1,12 @@
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.dev
+    environment:
+      NEXT_PUBLIC_BACKEND_BASE: "http://host.docker.internal:8080"
+      API_TOKEN: "my-secret-token"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./project:/app/beerbot
