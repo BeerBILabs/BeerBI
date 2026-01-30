@@ -5,88 +5,154 @@
 ## Languages
 
 **Primary:**
-- TypeScript 5.9.3 - All application code
-- JavaScript (JSX/TSX) - Component and configuration files
+- TypeScript 5.9.3 - Frontend (React/Next.js components and API routes)
+- Go 1.25 - Backend bot service (Slack integration and REST API)
 
 **Secondary:**
-- CSS - Styling via Tailwind CSS
+- JavaScript - Build and configuration files
 
 ## Runtime
 
-**Environment:**
-- Node.js (via Bun runtime)
+**Frontend:**
+- Node.js (via Bun package manager) - Development and build
+- Browser runtime - Client-side React execution
 
-**Package Manager:**
-- Bun 1.3.0+
-- Lockfile: `bun.lock` (present)
+**Backend:**
+- Go 1.25 runtime
+- Alpine Linux 3.20 - Docker runtime environment
+
+**Package Managers:**
+- Bun 1.3.0+ - Frontend package management
+- Lockfile: `bun.lock` present
+- Go modules - Backend dependency management
+- Lockfile: `go.sum` present
 
 ## Frameworks
 
-**Core:**
-- Next.js 16.1.6 - React meta-framework with server-side rendering and API routes
-- React 19.2.4 - UI library and component framework
-- React DOM 19.2.4 - DOM rendering
+**Frontend Core:**
+- Next.js 15.5.6 - React meta-framework with App Router and Server Components
+- React 19.2.0 - UI component library
+- React DOM 19.2.0 - React rendering
 
-**UI & Styling:**
-- Tailwind CSS 4.1.18 - Utility-first CSS framework
-- @tailwindcss/postcss 4.1.18 - PostCSS plugin for Tailwind
-- Tailwind Animate CSS 1.4.0 - Animation utilities
-- Lucide React 0.563.0 - Icon library
+**Frontend Styling:**
+- Tailwind CSS 4.1.14 - Utility-first CSS framework
+- @tailwindcss/postcss 4.1.14 - PostCSS plugin for Tailwind
+- PostCSS 8.4.24 - CSS transformation pipeline
+- Autoprefixer 10.4.14 - Vendor prefix automation
 
-**Utilities:**
-- next-themes 0.4.6 - Dark mode and theme management
-- react-datepicker 9.1.0 - Date range picker component
-- Next.js Font - Built-in Google Fonts loader (Inter font)
+**Frontend UI Components:**
+- lucide-react 0.546.0 - Icon component library
+- react-datepicker 5.1.0 - Date range picker component
 
-**Build/Dev:**
-- TypeScript 5.9.3 - Type checking
-- ESLint 9.39.2 - Code linting
-- eslint-config-next 16.1.6 - Next.js ESLint configuration
-- PostCSS 8.5.6 - CSS processing
-- Autoprefixer 10.4.23 - Vendor prefixes for CSS
+**Backend Core:**
+- Standard Go library (net/http) - HTTP server and routing
+- github.com/slack-go/slack v0.17.3 - Slack API client and WebSocket support
+- github.com/mattn/go-sqlite3 v1.14.32 - SQLite database driver
+
+**Monitoring & Observability:**
+- github.com/prometheus/client_golang v1.23.2 - Prometheus metrics collection and HTTP handler
+- github.com/rs/zerolog v1.34.0 - Structured JSON logging
 
 ## Key Dependencies
 
-**Critical:**
-- next 16.1.6 - Framework core, routing, API handling, Turbopack dev server
-- react 19.2.4 - Component framework and hooks
-- typescript 5.9.3 - Type safety and development experience
+**Frontend Critical:**
+- Next.js - Server-side rendering, API routes, static optimization
+- React - Component model and state management
+- Tailwind CSS - Design system and responsive styling
 
-**Infrastructure:**
-- @types/react 19.2.10 - TypeScript definitions for React
-- @types/node 25.1.0 - TypeScript definitions for Node.js
+**Backend Critical:**
+- slack-go/slack - Slack API integration (events, messages, user info, socket mode)
+- go-sqlite3 - Local persistent data storage
+- Prometheus client - Metrics exposure for monitoring
+- zerolog - Structured logging for debugging and observability
 
 ## Configuration
 
-**Environment:**
-- Environment variables configured via:
-  - `NEXT_PUBLIC_BACKEND_BASE` - Backend API base URL (default: `http://localhost:8080`)
-  - `API_TOKEN` - Authentication token for backend communication
-  - `NODE_ENV` - Runtime environment (development/production)
-- Secrets stored in `.env` and `.env.local` (not committed per `.gitignore`)
-
-**Build:**
-- `next.config.js` - Next.js configuration (React Strict Mode enabled)
-- `tsconfig.json` - TypeScript compiler options
+**Frontend:**
+- TypeScript config: `frontend/project/tsconfig.json`
   - Target: ES2017
-  - Module: ESNext
-  - Strict mode: Partial (strictNullChecks enabled, strict: false)
-  - Path alias: `@/*` maps to `./src/*`
-- `tailwind.config.js` - Tailwind CSS theme and content configuration (dark mode via class)
-- `postcss.config.mjs` - PostCSS plugins (Tailwind, Autoprefixer)
-- `eslint.config.mjs` - ESLint configuration with Next.js core web vitals
+  - Strict null checks enabled
+  - Path aliases: `@/*` -> `./src/*` (not used in current structure)
+  - JSX: preserve (Next.js handles transformation)
+
+- Next.js config: `frontend/project/next.config.js`
+  - React strict mode enabled for development warnings
+
+- Tailwind config: `frontend/project/tailwind.config.js`
+  - Dark mode: class-based toggle
+  - Content: `./app/**/*` and `./components/**/*`
+  - Custom color theme with HSL variables (background, foreground, primary, secondary, accent, etc.)
+  - Custom border radius scale
+
+- PostCSS config: `frontend/project/postcss.config.mjs`
+  - Plugins: @tailwindcss/postcss, autoprefixer
+
+- ESLint config: `frontend/project/eslint.config.mjs`
+
+**Backend:**
+- Dockerfile: `backend/bot/Dockerfile`
+  - Multi-stage build: Go 1.25 builder -> Alpine 3.20 runtime
+  - Volume mount: `/data` for SQLite database persistence
+  - Exposed port: 8080
+  - Healthcheck: wget to `/api/health` endpoint
+
+- Docker Compose: `backend/docker-compose.yml`
+  - Service: beerbot_backend
+  - Port mapping: 8080:8080
+  - Resource limits: 256M memory, 0.5 CPU
+  - Resource reservations: 128M memory, 0.25 CPU
+  - Health checks enabled with 30s interval
+
+## Environment Variables
+
+**Frontend (Next.js):**
+- `NEXT_PUBLIC_BACKEND_BASE` - Backend API base URL (default: `http://localhost:8080`)
+- `API_TOKEN` - API authentication token (default: `my-secret-token`) - **exposed to frontend**
+
+**Backend (Go):**
+- `BOT_TOKEN` - Slack bot token (xoxb-...)
+- `APP_TOKEN` - Slack app-level token (xapp-...) for Socket Mode
+- `CHANNEL` - Slack channel ID to monitor
+- `API_TOKEN` - API authentication token for REST endpoints
+- `DB_PATH` - SQLite database file path
+- `ADDR` - HTTP listen address (default: `:8080`)
+- `MAX_PER_DAY` - Maximum beers a user may give per day (default: 10)
+- `EMOJI` - Custom emoji to track (default: `:beer:`)
+
+## Build & Development Commands
+
+**Frontend:**
+```bash
+bun install              # Install dependencies
+bun run dev              # Start development server with turbopack
+bun run build            # Build for production
+bun start                # Start production server
+bun run lint             # Run ESLint
+```
+
+**Backend:**
+```bash
+go mod download          # Download dependencies
+go build -o ./bot .      # Build binary
+go test ./...            # Run tests
+docker build ./bot       # Build Docker image
+```
 
 ## Platform Requirements
 
 **Development:**
-- Bun 1.3.0+ as runtime and package manager
-- Node.js compatible environment
-- Turbopack-enabled Next.js dev server
+- Frontend: Node.js compatible runtime (Bun 1.3.0+), modern web browser
+- Backend: Go 1.25 toolchain
 
 **Production:**
-- Deployment target: Any Node.js/Bun compatible host
-- Build output: Next.js standalone output (`.next/` directory)
-- Static and dynamic rendering support
+- Frontend: Next.js compatible hosting (Node.js runtime or edge runtime)
+- Backend: Docker or standalone Alpine/Linux environment with SQLite support
+- Slack workspace with custom app configured for Socket Mode
+
+**Network Requirements:**
+- Backend requires outbound HTTPS to Slack API (api.slack.com)
+- Frontend makes requests to backend API
+- Frontend health check: GET `/api/health` on backend
 
 ---
 

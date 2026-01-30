@@ -5,226 +5,192 @@
 ## Naming Patterns
 
 **Files:**
-- React components: PascalCase (e.g., `UsersList.tsx`, `ThemeProvider.tsx`, `DateRangePicker.tsx`)
-- Utility/Library files: camelCase (e.g., `logger.ts`)
-- Route handlers: Lowercase with brackets for dynamic segments (e.g., `route.ts`, `[...path]`)
+- Frontend React/Next components: PascalCase with `.tsx` extension (e.g., `UsersList.tsx`, `ThemeToggle.tsx`, `DateRangePicker.tsx`)
+- Next.js API routes: snake_case for dynamic segments and lowercase for files (e.g., `app/api/proxy/[...path]/route.ts`, `app/api/health/route.ts`)
+- Backend Go files: snake_case separating concerns (e.g., `store.go`, `store_test.go`, `store_givers_test.go`)
 
 **Functions:**
-- Component functions: PascalCase (e.g., `export default function UsersList()`)
-- Utility functions: camelCase (e.g., `withTiming()`, `shouldLog()`)
-- Event handlers: camelCase with `on` prefix or descriptive name (e.g., `onClick()`)
+- Frontend (React/TypeScript): camelCase for utility functions, PascalCase for React components
+  - Example: `getSystemPrefersDark()` (utility), `UsersList()` (component)
+  - Async functions use async/await syntax: `async function loadStats()`, `async function fetchNamesAvatars()`
+- Backend (Go): camelCase for unexported functions, PascalCase for exported functions
+  - Example: `NewSQLiteStore()` (exported constructor), `migrate()` (unexported), `parseDate()` (unexported)
+- Type definitions used as constructors: `NewSlackConnectionManager(botToken, appToken)` pattern
 
 **Variables:**
-- State variables: camelCase (e.g., `mounted`, `lastArgsRef`, `range`)
-- Type/interface names: PascalCase (e.g., `DateRange`, `UsersListProps`, `ProxyParams`)
-- Constants: camelCase or UPPER_SNAKE_CASE depending on scope (e.g., `LEVELS`, `defaultLevel`, `concurrency`)
+- Frontend: camelCase for all variables
+  - State variables: `const [isDark, setIsDark] = useState(false)`
+  - Refs: `const lastArgsRef = useRef<string | null>(null)`
+  - Boolean flags: `mounted.current`, `cancelled`
+- Backend (Go): camelCase for local variables, PascalCase for exported struct fields
+  - Example in `SlackConnectionManager`: exported fields like `isConnected`, `lastPing`, `reconnectCount`
+  - Date parsing: `layout := "2006-01-02"`, `startStr`, `endStr`
 
 **Types:**
-- React component props: PascalCase ending with `Props` (e.g., `UsersListProps`, `DateRangePickerProps`)
-- Generic types: PascalCase (e.g., `DateRange`, `Level`)
-- Union types: PascalCase (e.g., `'Givers' | 'Recipients' | string`)
+- Frontend TypeScript: PascalCase for all type definitions
+  - Interface example: `type DateRangePickerProps = { start?: string | null; end?: string | null; onChange?: (start: string, end: string) => void }`
+  - Type aliases: `type DateRange = { start?: string; end?: string }`
+  - Union types: `type DateRange = { start: string; end: string }`
+- Backend Go: PascalCase for exported struct types
+  - Example: `type SlackConnectionManager struct`, `type ProxyParams struct`
 
 ## Code Style
 
 **Formatting:**
-- No Prettier config defined - ESLint is the primary linting tool
-- Code uses consistent spacing and indentation from ESLint configuration
-- Quote style: Double quotes for strings (observed throughout codebase)
-- Semicolons: Used consistently at end of statements
+- TypeScript/JavaScript: No explicit formatter configured; eslint manages style via configuration
+- Go: Standard Go formatting conventions (implicit via language)
+- HTML/CSS in components: Inline Tailwind classNames for styling, no separate CSS files for components
 
 **Linting:**
-- Tool: ESLint 9.39.2
-- Config: `eslint.config.mjs` using `eslint-config-next/core-web-vitals`
-- Run command: `npm run lint` (lints entire directory)
-- Key rules enforced: Next.js core web vitals best practices
+- Frontend: ESLint with Next.js configuration (`eslint.config.mjs`)
+  - Config extends: `next/core-web-vitals`, `next/typescript`
+  - Disabled rules:
+    - `react/no-unescaped-entities`: 0
+    - `@typescript-eslint/no-explicit-any`: 0
+  - Ignored paths: `node_modules/**`, `**/.next/**`, `out/**`, `build/**`, `**/next-env.d.ts`
+  - ESLint version: ^9
 
-**ESLint Configuration:**
-```javascript
-// eslint.config.mjs
-import { defineConfig, globalIgnores } from 'eslint/config'
-import nextVitals from 'eslint-config-next/core-web-vitals'
-
-const eslintConfig = defineConfig([
-  ...nextVitals,
-  globalIgnores([
-    '.next/**',
-    'out/**',
-    'build/**',
-    'next-env.d.ts',
-  ]),
-])
-export default eslintConfig
-```
+**TypeScript Configuration:**
+- Target: ES2017
+- Strict mode: disabled (`"strict": false`), but `strictNullChecks: true` enabled
+- Module resolution: node
+- JSX: preserve (for Next.js)
+- Path aliases: `@/*` maps to `./src/*` in `tsconfig.json`
+- `noEmit: true` - TypeScript compiles but doesn't emit files
 
 ## Import Organization
 
 **Order:**
-1. Next.js/React framework imports
-2. External library imports
-3. Internal component imports
-4. Internal utility imports
-5. Type imports (`import type`)
-
-**Examples from codebase:**
-```typescript
-// app/layout.tsx
-import './globals.css'
-import type { Metadata } from 'next'
-import type { ReactNode } from 'react'
-import { Inter } from 'next/font/google'
-import { ThemeProvider } from '../components/ThemeProvider'
-import ThemeToggle from '../components/ThemeToggle'
-import Logo from '../components/Logo'
-import Link from 'next/link'
-```
-
-```typescript
-// components/UsersList.tsx
-"use client"
-import React, { useEffect, useState, useRef } from 'react'
-import Image from 'next/image'
-```
+1. React/Next imports: `import { useEffect, useState } from 'react'`
+2. Next.js imports: `import Image from 'next/image'`, `import Link from 'next/link'`
+3. Third-party packages: `import { Sun, Moon } from 'lucide-react'`, `import DatePicker from 'react-datepicker'`
+4. Local relative imports: `import { useTheme } from './ThemeProvider'`, `import UsersList from './UsersList'`
+5. Type imports: `import type { ReactElement } from 'react'`, `import type { Metadata } from 'next'`
 
 **Path Aliases:**
-- `@/*` maps to `./src/*` (configured in `tsconfig.json`)
-- Current codebase uses relative imports (e.g., `../components/`, `../lib/`)
+- `@/*` resolves to `./src/*` (configured in `tsconfig.json`)
+- Used for absolute imports instead of relative paths
+
+**Go Import Organization:**
+- Standard library imports first (no blank line after): `import ("context", "database/sql", "encoding/json", ...)`
+- Third-party packages after: `"github.com/slack-go/slack"`, `"github.com/prometheus/client_golang/prometheus"`
+- Blank imports for side effects: `_ "github.com/mattn/go-sqlite3"`
 
 ## Error Handling
 
-**Patterns:**
-- Try-catch blocks used in async operations (fetch calls)
-- Error logging with `console.error()` at catch boundaries
-- Graceful degradation: Failed API calls default to zero counts or null values
-- No custom error types defined; uses native Error objects
+**Frontend Patterns:**
+- Try-catch blocks in async functions: Uses `try { ... } catch (err) { ... }` pattern
+- Error coercion to Error type: `(err as Error)?.message ?? 'unknown error'`
+- Graceful error recovery: Falls back to default values
+  - Example: `out[u] = 0` when fetch fails in concurrent worker
+  - Example: Sets avatar to null when image fetch fails
+- Error logging: Uses `console.error(err)` for debugging (minimal, only in critical paths)
 
-**Example from `UsersList.tsx`:**
-```typescript
-try {
-  const resp = await fetch(`${path}?${q.toString()}`)
-  if (!resp.ok) {
-    out[u] = 0
-    continue
-  }
-  const j = await resp.json()
-  out[u] = title === 'Givers' ? j.given : j.received
-} catch (err) {
-  console.error(err);
-  out[u] = 0
-}
-```
-
-**API Route Error Handling (from `route.ts`):**
-```typescript
-try {
-  const resp = await fetch(url, { ... })
-  // handle response
-} catch (err) {
-  console.error('[proxy] error', JSON.stringify({ ... }))
-  return NextResponse.json({ error: (err as Error).message }, { status: 500 })
-}
-```
+**Backend Patterns (Go):**
+- Error wrapping: Uses `fmt.Errorf("message: %w", err)` for context preservation
+- Exported functions return error as last return value: `NewSQLiteStore(db *sql.DB) (*SQLiteStore, error)`
+- Error checking: Standard Go pattern `if err != nil { return ... }`
+- Panics: Avoided in favor of returning errors; using `log.Fatalf()` only in main() for fatal initialization errors
+- Error context in logs: Includes operation context in log messages: `log.Printf("Socket mode client error, will reconnect: %v", err)`
 
 ## Logging
 
-**Framework:** `console` methods (debug, info, warn, error) wrapped in custom `logger` utility
+**Frontend Framework:** console (standard browser API)
 
-**Custom Logger Module (`lib/logger.ts`):**
-- Provides: `logger.debug()`, `logger.info()`, `logger.warn()`, `logger.error()`
-- All methods accept message string and optional metadata object
-- Formatting: ISO timestamp, level uppercase, JSON metadata
-- Level filtering: Production defaults to 'info', development defaults to 'debug'
-- Exported function: `withTiming<T>()` for measuring async operation performance
+**Patterns:**
+- `console.error()` used only for exceptions in async operations
+- `console.log()` used for operation tracking in API proxy: `console.log('proxy (app router) authSource=', authSource, 'path=', pathStr)`
+- No structured logging; output is minimal and direct
 
-**Logging Patterns:**
-```typescript
-// info level with metadata
-logger.info('range_quick', { label: q.label, start: next.start, end: next.end })
-logger.warn('fetch_givers: non_ok', { status: gResp.status })
+**Backend Framework:** log (standard Go library) and zerolog imported but mostly log usage
 
-// Performance timing
-const result = await withTiming('fetch_givers', () => fetch('/api/proxy/givers'))
-```
-
-**Unstructured Logging:**
-- API routes and components may use direct `console.error()` for error reporting
-- Server-side API routes use structured logging with JSON metadata
+**Patterns:**
+- `log.Printf()` for formatted output with context: `log.Printf("Slack connection established (reconnect count: %d)", scm.reconnectCount)`
+- `log.Println()` for simple messages: `log.Println("Starting Slack socket mode client...")`
+- Connection state tracking: Logs connection changes, reconnect attempts, and status
+- `log.Fatalf()` used only in main() for initialization failures that prevent startup
 
 ## Comments
 
 **When to Comment:**
-- JSDoc/TSDoc not used consistently in this codebase
-- Inline comments present only for non-obvious logic (e.g., state synchronization patterns)
-- Comments explain "why" not "what" (e.g., "avoid synchronous setState inside effect")
+- Function-level documentation for exported functions (Go pattern)
+  - Example: `// NewSlackConnectionManager creates a new connection manager`
+  - Example: `// IsConnected returns the current connection status`
+- Inline comments for non-obvious logic or workarounds
+  - Example: `// Fetch stats for each user` before complex useEffect
+  - Example: `// Calculate exponential backoff delay` before calculation logic
+  - Example: `// Avoid sending cookies/credentials to different origin by default`
+- Explain the "why" not the "what": `// non-visual helper; ensures class applied on mount`
 
-**Example from `UsersPage.tsx`:**
-```typescript
-// Initialize empty, then set on mount to avoid SSR/CSR time drift
-const [range, setRange] = useState<DateRange>({ start: '', end: '' })
-
-// Set default range using a macrotask to avoid synchronous setState inside effect
-const id = setTimeout(() => {
-  // ...
-}, 0)
-```
-
-**Type Annotations:**
-- Explicit return types on functions: `function Home(): ReactElement`
-- Component prop types declared separately as interfaces/types
-- React.FC not used; props passed as function parameter with type
+**JSDoc/TSDoc:**
+- Minimal usage; function signatures are preferred for clarity
+- Type annotations in TypeScript serve as documentation
+- React components use destructured props with inline type definitions
 
 ## Function Design
 
-**Size:** Functions generally kept concise, with async operations delegated to nested functions where needed
+**Size:**
+- Frontend: Keep to 50-100 lines; separate complex logic into helper functions within useEffect hooks
+  - Example: `loadStats()` async function defined inside useEffect in `UsersList.tsx`
+  - Example: `worker()` function defined inside async function for concurrent operations
+- Backend: Methods can be longer when dealing with SQL operations; ~30-50 lines typical
+  - Example: `migrate()` handles all table creation and schema validation in one place
 
 **Parameters:**
-- Destructured from props for React components (e.g., `{ title, users, range }`)
-- Named parameters preferred for utility functions
-- Generic type parameters used in utility functions (e.g., `withTiming<T>()`)
+- Frontend React: Props destructured directly in function signature with inline type definition
+  - Example: `function ThemeToggle()` (no props), `function UsersList({ title, users, range }: UsersListProps)`
+- Backend Go: Context as first parameter for cancellation: `(scm *SlackConnectionManager) TestConnection(ctx context.Context)`
 
 **Return Values:**
-- Component functions return JSX.Element or ReactElement
-- API routes return NextResponse or NextResponse.json()
-- Utility functions return Promise<T> for async operations
-- Functions handling fetch errors return default values (0, null, etc.) rather than throwing
+- Frontend: React components return JSX element (ReactElement) or null
+  - Example: `export default function Home(): ReactElement { return ... }`
+  - Example: `ThemeProvider()` returns `mounted ? null : null` (no visual output)
+- Backend Go: Error as final return value (idiomatic)
+  - Example: `func (s *SQLiteStore) GetCount(user string, emoji string) (int, error)`
+  - Example: `func (scm *SlackConnectionManager) TestConnection(ctx context.Context) error`
 
 ## Module Design
 
 **Exports:**
-- Default exports used for React components
-- Named exports used for utilities and custom hooks
-- Multiple exports from a single file (e.g., `ThemeProvider.tsx` exports both component and hook)
+- Frontend: Default exports for page/route components, named exports for utilities
+  - Example: `export default function UsersList()`
+  - Example: `export function useTheme()` for custom hooks
+- Backend Go: Uppercase names for public API, lowercase for internal
+  - Example: `func NewSQLiteStore()` exported constructor
+  - Example: `func (s *SQLiteStore) migrate()` unexported helper
 
 **Barrel Files:**
-- Not used in this codebase
-- All imports are direct relative paths to specific files
+- Not used in this codebase; imports are direct from source files
 
-**Component Structure:**
-- Client components marked with `"use client"` directive at top (required by Next.js)
-- Server components (like layout, page) use server-side features (metadata, etc.)
-- Props typed inline or with separate type definitions above component
+## Async Patterns (Frontend)
 
-## Data Fetching Patterns
+**useEffect with Cleanup:**
+- Cleanup function returns cancellation logic
+- Mutable refs track mounted state to prevent state updates after unmount
+  - Example in `UsersList.tsx`: `let cancelled = false` flag with cleanup `return () => { cancelled = true }`
+- Debouncing implemented with setTimeout: `const timer = setTimeout(() => { loadStats() }, 200)`
 
-**Client-Side Fetch:**
-- Wrapped in `useEffect` hooks
-- Concurrency control via worker pattern (e.g., 5 concurrent requests in `UsersList.tsx`)
-- Cancellation flags prevent state updates on unmounted components
-- Debouncing with `setTimeout` to avoid duplicate requests (200ms delay in stats fetching)
+**Concurrent Operations:**
+- Worker pattern for limiting concurrency
+  - Example: `const concurrency = 5` with shared `idx` counter
+  - Each worker runs in parallel with `Promise.all(workers)`
+  - Increment counter atomically: `const i = idx++`
 
-**Server-Side Proxy:**
-- API route at `/api/proxy/[...path]` forwards requests to backend
-- Injects Authorization header from server-side `API_TOKEN` env var
-- Returns response as-is with status and content-type preserved
+**Error Recovery in Async:**
+- Failed operations default to safe values: `out[u] = 0` (no data means zero count)
+- Check both `cancelled` and `mounted.current` before setState
+- Comparison checks prevent redundant updates: `if (prev !== next && mounted.current) setStats(out)`
 
-## TypeScript Configuration
+## State Management
 
-**Key Settings (from `tsconfig.json`):**
-- `strict: false` (not fully strict mode)
-- `strictNullChecks: true` (explicitly enabled despite loose mode)
-- `jsx: "react-jsx"` (new JSX transform)
-- `target: ES2017`
-- `moduleResolution: node`
-- `forceConsistentCasingInFileNames: true`
+**Frontend:**
+- useState for component-level state (counters, booleans, objects)
+- useRef for mutable state that doesn't trigger re-renders (refs, flags)
+- Custom hook pattern for cross-component logic: `useTheme()` returns object with methods
+
+**Backend:**
+- Struct fields for instance state: `SlackConnectionManager` holds client references and counters
+- sync.RWMutex for concurrent access: `scm.mu.RLock()` / `scm.mu.RUnlock()` pattern
 
 ---
 

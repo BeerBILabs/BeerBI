@@ -2,291 +2,201 @@
 
 **Analysis Date:** 2026-01-30
 
-## Security Concerns
+## Tech Debt
 
-**Hardcoded API Token in Proxy:**
-- Issue: Frontend proxy route uses a hardcoded fallback token with placeholder value "my-secret-token"
-- Files: `/home/tdolfen/Projects/github.com/DanielWeeber/BeerBot-frontend/project/app/api/proxy/[...path]/route.ts` (line 20)
-- Impact: If `process.env.API_TOKEN` is not set, requests will fail authentication or reveal placeholder token in logs
-- Current mitigation: Environment variable configuration required, but fallback is insecure
-- Recommendations:
-  - Remove fallback token entirely; require env var to be set
-  - Add startup validation that API_TOKEN is present before server starts
-  - Never log the actual token, only log auth source ("client", "HARDCODED", or "none")
+**Hardcoded API Token in Frontend Proxy:**
+- Issue: API token falls back to hardcoded default value when env var is missing
+- Files: `/home/tdolfen/Projects/github.com/BeerBILabs/frontend/project/app/api/proxy/[...path]/route.ts` (line 20)
+- Impact: Security vulnerability - the string `'my-secret-token'` appears in code. If this is deployed as-is, anyone can authenticate to the API.
+- Fix approach: Remove hardcoded fallback entirely. Require `API_TOKEN` environment variable to be set. Log a fatal error at startup if missing rather than using a default.
 
-**Exposed Slack Credentials in Dev Files:**
-- Issue: `.env.dev` file contains real Slack bot tokens and app tokens
-- Files: `/home/tdolfen/Projects/github.com/DanielWeeber/BeerBot-backend/.env.dev`
-- Impact: Credentials exposed in version control; if leaked, attacker can impersonate the bot
-- Current mitigation: None detected (file appears to be committed)
-- Recommendations:
-  - Remove `.env.dev` from version control (add to `.gitignore`)
-  - Document `.env.dev` example with placeholder values (`.env.dev.example`)
-  - Use secrets management system (GitHub Secrets, Vault, etc.) for CI/CD
+**TypeScript Strict Mode Disabled:**
+- Issue: `tsconfig.json` has `"strict": false` but `"strictNullChecks": true` is set independently, creating inconsistent type safety
+- Files: `/home/tdolfen/Projects/github.com/BeerBILabs/frontend/project/tsconfig.json` (lines 11, 28)
+- Impact: Reduces type safety. Some files may have implicit `any` types. React components use `any` types (see line 93 in `UsersList.tsx`)
+- Fix approach: Enable full strict mode (`"strict": true`) and fix type errors. Use proper TypeScript types instead of `any`.
 
-**Proxy Forwards Authorization Headers Directly:**
-- Issue: Frontend proxy accepts Authorization headers from client and forwards them to backend
-- Files: `/home/tdolfen/Projects/github.com/DanielWeeber/BeerBot-frontend/project/app/api/proxy/[...path]/route.ts` (lines 19-29)
-- Impact: Client could potentially pass arbitrary auth headers; no validation of header format
-- Current mitigation: Backend has `authMiddleware` that validates Bearer token format and compares against server-side token
-- Recommendations:
-  - Document that proxy strips/ignores client Authorization headers in favor of server-side token
-  - Remove client Authorization header forwarding entirely; always use server-side token
+**Database Migration Logic is Complex:**
+- Issue: Store migration in `store.go` handles table recreation with aggregation, but the logic has fragile error handling
+- Files: `/home/tdolfen/Projects/github.com/BeerBILabs/backend/bot/store.go` (lines 22-159)
+- Impact: If migration partially fails (e.g., transaction commit fails), data could be silently lost or corrupted. The rename operation at line 150 logs but doesn't prevent issues.
+- Fix approach: Add rollback safety checks. Log more granularly. Add dry-run mode for testing migrations. Consider using a dedicated migration framework.
 
-**Image URLs Loaded from Untrusted Source:**
-- Issue: Avatar URLs (`j.profile_image`) are loaded directly from Slack API without validation and rendered via Next.js Image
-- Files: `/home/tdolfen/Projects/github.com/DanielWeeber/BeerBot-frontend/project/components/UsersList.tsx` (lines 108-110, 159-166)
-- Impact: Malicious Slack workspace could modify avatar URLs; `unoptimized` flag bypasses Next.js image optimization
-- Current mitigation: `unoptimized` flag used (line 164), image requires valid URL
-- Recommendations:
-  - Remove `unoptimized` flag to leverage Next.js optimization and caching
-  - Add URL validation whitelist (only allow Slack CDN domains)
-  - Consider using fallback avatar if URL fails to load
+**String-based JSON Responses in Backend API:**
+- Issue: HTTP handlers manually construct JSON strings instead of using `json.Marshal`
+- Files: `/home/tdolfen/Projects/github.com/BeerBILabs/backend/bot/main.go` (lines 300-301, 320-321)
+- Impact: JSON injection vulnerability if user IDs contain special characters. Not properly escaping values.
+- Fix approach: Replace manual string formatting with `json.NewEncoder(w).Encode()` (already done for other handlers). Use struct types for responses.
 
-**Bearer Token in Logs:**
-- Issue: Bearer token is logged in HTTP handler errors
-- Files: `/home/tdolfen/Projects/github.com/DanielWeeber/BeerBot-backend/bot/http_handlers.go` (line 38)
-- Impact: Logs may expose API token if printed in debug output
-- Current mitigation: Line 38 logs headers which contain Authorization header with token
-- Recommendations:
-  - Sanitize logs to mask Authorization headers
-  - Never log full header values in production; use structured logging with token masked
+## Known Bugs
+
+**Race Condition in Frontend Stats Loading:**
+- Symptoms: Multiple concurrent requests to `/api/proxy/given` and `/api/proxy/received` for same users can cause duplicate or lost data in state
+- Files: `/home/tdolfen/Projects/github.com/BeerBILabs/frontend/project/components/UsersList.tsx` (lines 25-87)
+- Trigger: Rapidly changing date range while stats are loading, or multiple quick filter button clicks
+- Workaround: Already partially mitigated with `cancelled` flag and 200ms debounce, but not fully safe. Race condition can still occur between fetch completion and state update.
+
+**Missing Error Propagation in Frontend:**
+- Symptoms: When API requests fail silently, users see "No data" instead of an error message
+- Files: `/home/tdolfen/Projects/github.com/BeerBILabs/frontend/project/components/UsersPage.tsx` (lines 89-96), `/home/tdolfen/Projects/github.com/BeerBILabs/frontend/project/components/UsersList.tsx` (lines 61-71)
+- Trigger: Backend is unreachable, returns 5xx, or proxy endpoint returns 401
+- Workaround: None - users must check browser console to diagnose
+
+## Security Considerations
+
+**Bearer Token Authentication is Weak:**
+- Risk: Token is transmitted in plain HTTP headers. If TLS is not enforced, it can be intercepted.
+- Files: `/home/tdolfen/Projects/github.com/BeerBILabs/backend/bot/main.go` (lines 607-627)
+- Current mitigation: None documented. Assumes TLS at deployment layer.
+- Recommendations: Document TLS requirement explicitly in deployment guides. Consider adding request signing or mutual TLS. Add token rotation strategy.
+
+**API Token Exposed in Browser Proxy:**
+- Risk: The frontend proxy passes API token in Authorization header. If frontend is compromised or logs are exposed, token is leaked.
+- Files: `/home/tdolfen/Projects/github.com/BeerBILabs/frontend/project/app/api/proxy/[...path]/route.ts` (lines 18-29)
+- Current mitigation: Token is server-side only (good). But hardcoded default breaks this (see Tech Debt above).
+- Recommendations: Remove hardcoded token. Add token rotation. Consider moving proxy logic to dedicated API gateway.
+
+**No Input Validation on User IDs:**
+- Risk: User IDs from Slack could contain SQL injection vectors (though parameterized queries protect)
+- Files: `/home/tdolfen/Projects/github.com/BeerBILabs/backend/bot/main.go` (lines 284-287, 304-307)
+- Current mitigation: Parameterized SQL queries prevent injection. User ID comes from Slack API (trusted source).
+- Recommendations: Add validation that user IDs match Slack format (`U[A-Z0-9]+`). Log suspicious patterns.
+
+**Regex DoS Potential:**
+- Risk: Emoji detection regex could be vulnerable to ReDoS if emoji format is malicious
+- Files: `/home/tdolfen/Projects/github.com/BeerBILabs/backend/bot/main.go` (line 469)
+- Current mitigation: Emoji regex is simple and safe. User mention regex is pre-compiled.
+- Recommendations: Add timeout to regex matching. Consider pre-compiling `emojiRe`.
 
 ## Performance Bottlenecks
 
-**Unoptimized Image Loading in UsersList:**
-- Issue: All avatar images use `unoptimized=true` flag, preventing Next.js optimization
-- Files: `/home/tdolfen/Projects/github.com/DanielWeeber/BeerBot-frontend/project/components/UsersList.tsx` (line 164)
-- Impact: No image compression, caching, or responsive sizing; larger bandwidth usage
-- Current mitigation: None; fallback to default img tag behavior
-- Improvement path:
-  - Remove `unoptimized` flag to enable Next.js optimization
-  - Ensure `width` and `height` are always provided (currently provided as 32x32)
-  - Add `priority={false}` for lazy loading of non-critical avatars
+**N+1 Query Pattern in Frontend User List:**
+- Problem: For each user in list, frontend makes separate API call to `/api/proxy/user` to get name/avatar
+- Files: `/home/tdolfen/Projects/github.com/BeerBILabs/frontend/project/components/UsersList.tsx` (lines 89-132)
+- Cause: API design doesn't support batch user lookups. With 100 users, this is 100+ HTTP requests.
+- Improvement path: Add batch endpoint `/api/users?user_ids=U1,U2,U3` to backend. Frontend batches requests.
 
-**N+1 Query Pattern in Frontend:**
-- Issue: UsersList fetches stats for each user sequentially with concurrency limit of 5
-- Files: `/home/tdolfen/Projects/github.com/DanielWeeber/BeerBot-frontend/project/components/UsersList.tsx` (lines 46-76)
-- Impact: If 100+ users exist, makes 100 separate requests instead of batch endpoint
-- Current mitigation: Concurrency limit of 5 prevents complete parallelization but still multiple requests
-- Improvement path:
-  - Create batch endpoint: `/api/proxy/given-batch?users=U1,U2,U3` returning multiple user stats
-  - Implement pagination if users list is very large
-  - Cache results in component state to prevent refetches
+**Unbounded List Sorting and Slicing:**
+- Problem: `GetAllGivers()` and `GetAllRecipients()` load entire dataset into memory, no pagination
+- Files: `/home/tdolfen/Projects/github.com/BeerBILabs/backend/bot/store.go` (lines 295-328)
+- Cause: No pagination parameters in API design. With thousands of users, memory usage grows unbounded.
+- Improvement path: Add `LIMIT` and `OFFSET` parameters to queries. Return page metadata (total count, has_next).
 
-**Fetching User Names/Avatars Separately:**
-- Issue: Two separate effect hooks fetch user names and avatars; total of 100+ requests per 100 users
-- Files: `/home/tdolfen/Projects/github.com/DanielWeeber/BeerBot-frontend/project/components/UsersList.tsx` (lines 89-132)
-- Impact: Duplicates HTTP requests and roundtrips for user profile data
-- Current mitigation: Batched with concurrency limit of 5
-- Improvement path:
-  - Merge into single `/api/proxy/user-batch` endpoint returning both names and avatars
-  - Consolidate into one useEffect hook
-  - Cache results to prevent refetches on range changes
-
-**Hardcoded Top 100 Users Limit:**
-- Issue: UsersList always renders only top 100 users by count
-- Files: `/home/tdolfen/Projects/github.com/DanielWeeber/BeerBot-frontend/project/components/UsersList.tsx` (line 138)
-- Impact: Leaderboard truncates if more than 100 users give/receive beers
-- Current mitigation: Slice applied at sort level
-- Improvement path:
-  - Add pagination controls to show more users
-  - Load users on demand with virtual scrolling for large lists
-  - Make limit configurable
-
-## Error Handling Gaps
-
-**Silent Error Suppression in Frontend:**
-- Issue: Network errors in UsersList are caught but only logged to console; UI shows no error state
-- Files: `/home/tdolfen/Projects/github.com/DanielWeeber/BeerBot-frontend/project/components/UsersList.tsx` (lines 60-71, 101-115)
-- Impact: User has no way to know if data failed to load; partial data displayed without indication
-- Current mitigation: `console.error` called, but no UI feedback
-- Recommendations:
-  - Add error state to component
-  - Show user-friendly error message in UI
-  - Implement retry mechanism with exponential backoff
-
-**Unhandled Promise Rejection in Proxy Load:**
-- Issue: `load()` function in UsersPage.tsx returns Promise but isn't awaited; errors may be unhandled
-- Files: `/home/tdolfen/Projects/github.com/DanielWeeber/BeerBot-frontend/project/components/UsersPage.tsx` (lines 95-112)
-- Impact: Fetch failures silently fail without retry or user notification
-- Current mitigation: Individual fetch responses checked with `.ok` property
-- Recommendations:
-  - Add `.catch()` handler to `load()` call
-  - Implement error boundary or error state
-  - Show loading state while fetching
-
-**Missing Boundary Validation on Date Range:**
-- Issue: Date range inputs accept any valid date; no validation that start <= end
-- Files: `/home/tdolfen/Projects/github.com/DanielWeeber/BeerBot-frontend/project/components/DateRangePicker.tsx`
-- Impact: Reverse date ranges could cause backend errors or unexpected results
-- Current mitigation: None visible in code review
-- Recommendations:
-  - Validate that start date <= end date before sending request
-  - Show error if user selects invalid range
-  - Auto-swap dates if end < start
-
-## Data Consistency Concerns
-
-**Event Deduplication Depends on Slack Envelope ID:**
-- Issue: Event deduplication uses `envelope_id` from Slack, but falls back to computed ID using timestamp
-- Files: `/home/tdolfen/Projects/github.com/DanielWeeber/BeerBot-backend/bot/slack.go` (lines 274-281)
-- Impact: If envelope_id is missing/empty, computed fallback using user/timestamp/channel may collide
-- Current mitigation: Fallback to `msg|channel|user|timestamp` format
-- Recommendations:
-  - Always require envelope_id from Slack; log error if missing
-  - Consider adding microsecond precision to timestamp fallback
-  - Monitor for duplicate beers logged with same giver/recipient
-
-**Database Migration Complexity:**
-- Issue: Store migration logic attempts to add columns and recreate table with aggregation
-- Files: `/home/tdolfen/Projects/github.com/DanielWeeber/BeerBot-backend/bot/store.go` (lines 22-159)
-- Impact: Complex transaction logic could fail partway, leaving schema inconsistent
-- Current mitigation: Transaction with rollback on error
-- Recommendations:
-  - Add pre-migration backup of database
-  - Add migration version tracking to prevent re-running
-  - Test migration path with large datasets
-  - Consider using migration tool (golang-migrate, flyway) instead of inline logic
-
-**Slack Timestamp Parsing Fragility:**
-- Issue: `parseSlackTimestamp` pads fractional seconds but may lose precision
-- Files: `/home/tdolfen/Projects/github.com/DanielWeeber/BeerBot-backend/bot/slack.go` (lines 399-429)
-- Impact: Beers recorded at same second may have identical ts_rfc, violating UNIQUE constraint
-- Current mitigation: UNIQUE on (giver_id, recipient_id, ts) uses raw timestamp, not ts_rfc
-- Recommendations:
-  - Document that ts_rfc is for queries only; UNIQUE constraint on original ts string
-  - Add test for beers given in same second
-  - Consider storing original ts as primary key component
+**Synchronous Event Processing:**
+- Problem: Main Slack event handler blocks on database writes and API calls (daily limit check calls `PostMessage`)
+- Files: `/home/tdolfen/Projects/github.com/BeerBILabs/backend/bot/main.go` (lines 419-556)
+- Cause: Beer recording must complete before next message event can be processed. Slack timeout is 3 seconds.
+- Improvement path: Use worker pool pattern. Queue events, process asynchronously, ack socket mode immediately.
 
 ## Fragile Areas
 
-**Slack Connection Manager Reconnection Logic:**
-- Files: `/home/tdolfen/Projects/github.com/DanielWeeber/BeerBot-backend/bot/slack.go` (lines 108-171)
-- Why fragile: Exponential backoff restarts entire socket client on each failure; concurrent event processing continues during reconnect
-- Safe modification:
-  - Coordinate event processing to pause during reconnection
-  - Add telemetry to track reconnection frequency
-  - Test with intentional Slack disconnections
-- Test coverage: No explicit tests for reconnection scenarios
+**Slack Connection Reconnection Logic:**
+- Files: `/home/tdolfen/Projects/github.com/BeerBILabs/backend/bot/main.go` (lines 31-155, 562-583)
+- Why fragile: Exponential backoff can reach 5 minutes. If backend crashes during reconnect loop, messages are lost. Multiple goroutines access `socketClient` without full synchronization.
+- Safe modification: Lock all socket client access. Add max reconnect attempts before degraded mode. Log every state transition.
+- Test coverage: No tests for reconnection logic, connection monitor, or health check endpoint.
 
-**UsersList Message Parsing Regex:**
-- Files: `/home/tdolfen/Projects/github.com/DanielWeeber/BeerBot-backend/bot/slack.go` (lines 293-310)
-- Why fragile: Regex parsing for @mentions and emoji position is brittle; edge cases like escaped emoji or nested mentions not handled
-- Safe modification:
-  - Add whitespace handling between mentions and emoji
-  - Test with various message formats
-  - Consider using proper Slack message parser library
-- Test coverage: `slack.go` has debug logging but no unit tests for message parsing
+**Database Schema Migration Path:**
+- Files: `/home/tdolfen/Projects/github.com/BeerBILabs/backend/bot/store.go` (lines 22-159)
+- Why fragile: Rewrites entire `beers` table on first run if schema doesn't have UNIQUE constraint. Complex SQL with multiple transaction boundaries. No rollback on partial failure.
+- Safe modification: Write separate pre-migration and schema-upgrade functions. Test against realistic data sizes. Add data validation after migration.
+- Test coverage: Basic `store_test.go` exists but doesn't test migration failure cases or data consistency after upgrade.
 
-**Daily Limit Check Race Condition:**
-- Files: `/home/tdolfen/Projects/github.com/DanielWeeber/BeerBot-backend/bot/slack.go` (lines 338-354)
-- Why fragile: Check-then-act pattern (count beers, then insert) has race condition if multiple messages arrive simultaneously
-- Safe modification:
-  - Move limit check into database transaction before insert
-  - Use database constraint to enforce limit
-  - Test with concurrent message arrivals
-- Test coverage: No tests for concurrent gift-giving
+**Date Parsing is Inconsistent:**
+- Files: `/home/tdolfen/Projects/github.com/BeerBILabs/backend/bot/main.go` (lines 178-200, 631-660)
+- Why fragile: `parseSlackTimestamp` and `parseDateRangeFromParams` handle edge cases differently. Slack timestamps with fractions are parsed one way, query params another way.
+- Safe modification: Create a single `TimeParser` type with test cases for edge cases (missing fraction, zero values, year boundaries).
+- Test coverage: No explicit tests for timestamp parsing near year/month boundaries.
 
-## Test Coverage Gaps
-
-**Frontend Components Have No Tests:**
-- What's not tested: UsersList, UsersPage, DateRangePicker, API routes all lack unit/integration tests
-- Files: `/home/tdolfen/Projects/github.com/DanielWeeber/BeerBot-frontend/project/components/`, `/home/tdolfen/Projects/github.com/DanielWeeber/BeerBot-frontend/project/app/`
-- Risk: Rendering bugs, data fetch failures, and UI logic errors go undetected
-- Priority: High - UI is user-facing and critical for functionality
-
-**Backend Message Parsing Not Tested:**
-- What's not tested: Regex parsing for mentions and emoji, message filtering logic, beer counting
-- Files: `/home/tdolfen/Projects/github.com/DanielWeeber/BeerBot-backend/bot/slack.go` (lines 293-336)
-- Risk: Edge cases in message format could cause beers to fail silently
-- Priority: High - core business logic
-
-**Database Migration Not Tested:**
-- What's not tested: Table recreation path, aggregation during migration, constraint enforcement
-- Files: `/home/tdolfen/Projects/github.com/DanielWeeber/BeerBot-backend/bot/store.go` (lines 22-159)
-- Risk: Production migration could corrupt data or create constraint violations
-- Priority: High - critical for data integrity
-
-**HTTP Handler Authorization Not Tested:**
-- What's not tested: Bearer token validation, missing header handling, invalid format rejection
-- Files: `/home/tdolfen/Projects/github.com/DanielWeeber/BeerBot-backend/bot/http_handlers.go` (lines 172-193)
-- Risk: Authorization bypass if middleware logic changed
-- Priority: Medium - security-critical but unlikely to change
-
-**Concurrency Edge Cases:**
-- What's not tested: Race conditions on concurrent gift-giving, simultaneous Slack reconnections, database transaction collisions
-- Files: `/home/tdolfen/Projects/github.com/DanielWeeber/BeerBot-backend/bot/slack.go`, `/home/tdolfen/Projects/github.com/DanielWeeber/BeerBot-backend/bot/store.go`
-- Risk: Data corruption or lost updates under concurrent load
-- Priority: Medium - unlikely in small deployments but critical at scale
-
-## Dependencies at Risk
-
-**Slack SDK Version:**
-- Package: `github.com/slack-go/slack v0.17.3`
-- Risk: Community-maintained library with moderate update frequency
-- Impact: Security fixes may lag; socket mode API changes could break reconnection
-- Migration plan: Monitor for updates; test socket mode changes thoroughly
-
-**SQLite as Persistent Store:**
-- Package: `github.com/mattn/go-sqlite3 v1.14.32`
-- Risk: Single file database; no built-in replication or backup
-- Impact: Database file corruption loses all data; no HA story
-- Migration plan: Consider PostgreSQL for production; implement database backups
-
-**React Datepicker:**
-- Package: `react-datepicker ^9.1.0`
-- Risk: Minor version bumps could introduce breaking changes
-- Impact: Date format or behavior changes could break date range UI
-- Migration plan: Pin to specific patch version; test date picker thoroughly on upgrades
+**Frontend State Synchronization:**
+- Files: `/home/tdolfen/Projects/github.com/BeerBILabs/frontend/project/components/UsersList.tsx` (entire file)
+- Why fragile: Multiple `useEffect` hooks that can be triggered in any order. State updates check `mounted.current` but not all callbacks do. Type assertions with `as string` are unsafe.
+- Safe modification: Consider using a state machine or reducer pattern. Make all async operations respect the same cancellation mechanism.
+- Test coverage: No tests for component behavior - only manual testing possible.
 
 ## Scaling Limits
 
-**Single SQLite Database:**
-- Current capacity: Tested up to thousands of beer records; limited by single-file locking
-- Limit: SQLite becomes slow with >10GB database or >100 concurrent writes
-- Scaling path:
-  - Migrate to PostgreSQL for horizontal scaling
-  - Implement database connection pooling
-  - Add read replicas for leaderboard queries
+**SQLite File I/O Bottleneck:**
+- Current capacity: Single-file SQLite database with no connection pooling can handle ~100 concurrent queries before lock contention
+- Limit: Cannot scale beyond single machine. Writes become serialized with high concurrency.
+- Scaling path: Migrate to PostgreSQL. Add query caching with Redis. Implement read replicas for analytics queries.
 
-**Frontend N+1 Requests:**
-- Current capacity: Leaderboard with 100+ users is performant but makes 200+ requests
-- Limit: 1000+ users causes noticeable slowdown; mobile users see degraded experience
-- Scaling path:
-  - Implement batch API endpoints
-  - Cache user profile data server-side
-  - Use pagination or virtual scrolling
+**Frontend API Proxy is a Bottleneck:**
+- Current capacity: Next.js server single instance can proxy ~1000 req/sec
+- Limit: No horizontal scaling documented. Single proxy point of failure.
+- Scaling path: Put proxy behind load balancer. Cache responses. Consider moving auth to dedicated service.
 
-**Hardcoded Top 100 Users:**
-- Current capacity: Leaderboard shows top 100 givers and 100 recipients
-- Limit: If more than 100 users participate, remainder are invisible
-- Scaling path:
-  - Add pagination to leaderboard
-  - Implement search/filter for specific users
-  - Cache top-N users separately for performance
+**Slack Socket Mode Single Connection:**
+- Current capacity: One socket mode connection per bot instance can deliver ~100 messages/sec
+- Limit: High-traffic workspace will lose events during spikes. Only one connection allowed per app token.
+- Scaling path: Multiple bot instances with shared database. Use Slack's message history API as fallback.
+
+## Dependencies at Risk
+
+**Deprecated SQLite CGO Binding:**
+- Risk: `github.com/mattn/go-sqlite3` requires C compilation. Adds build complexity and security surface.
+- Impact: Docker build must include gcc. SQLite version is tied to system version.
+- Migration plan: Consider pure Go SQLite (e.g., `modernc.org/sqlite`) for easier deployment and security patching.
+
+**Old Slack SDK Version:**
+- Risk: Code imports `github.com/slack-go/slack` without version pinning visible
+- Impact: Breaking changes in SDK could break event handling. Socket mode implementation may be outdated.
+- Migration plan: Pin to specific version in go.mod. Test against latest before upgrading.
+
+**Next.js Turbopack in Development:**
+- Risk: `"dev": "next dev --turbopack"` uses unstable bundler
+- Impact: Different behavior between dev and production. Build may fail in CI.
+- Migration plan: Remove `--turbopack` flag or use stable bundler in production. Test CI builds separately.
 
 ## Missing Critical Features
 
-**No Undo/Correction Mechanism:**
-- Problem: Once beers are given, they cannot be retracted or corrected
-- Blocks: Users cannot fix accidental beer gifts or typos
-- Recommendation: Add admin endpoint to remove/adjust beer counts with audit log
+**No Event Retry Logic:**
+- Problem: If beer recording fails, no automatic retry. Message from Slack is silently lost.
+- Blocks: Reliability guarantees for beer tracking. Can't detect lost events.
 
-**No Rate Limiting:**
-- Problem: No rate limits on API endpoints; backend only has daily per-user limit
-- Blocks: DOS attacks could overwhelm backend; no per-IP or per-session limits
-- Recommendation: Add rate limiting middleware (e.g., 100 req/min per IP)
+**No Data Validation on Beer Messages:**
+- Problem: Any user mention + emoji is recorded. No validation that mention is valid or user exists.
+- Blocks: Data quality audits. Detecting spoofing attempts.
 
 **No Audit Log:**
-- Problem: No record of who added beers, when, and why (original message not stored)
-- Blocks: Cannot investigate disputes or verify authenticity
-- Recommendation: Store original Slack message text and metadata with each beer record
+- Problem: No record of who gave/received beers, just totals by date.
+- Blocks: Debugging, compliance, dispute resolution.
 
-**No User Authentication:**
-- Problem: API endpoints have single token; no user identity for audit trail
-- Blocks: Cannot attribute API changes to specific users
-- Recommendation: Integrate with Slack OAuth for user-level authentication
+**No Admin Interface:**
+- Problem: Can't manually correct beer counts or delete erroneous entries.
+- Blocks: Operational support. Can only fix database directly.
+
+## Test Coverage Gaps
+
+**Backend Slack Event Processing:**
+- What's not tested: Main event handler, emoji/mention parsing logic, daily limit enforcement
+- Files: `/home/tdolfen/Projects/github.com/BeerBILabs/backend/bot/main.go` (lines 419-556)
+- Risk: Regex changes could silently break mention detection. Daily limit logic untested.
+- Priority: High - this is core business logic
+
+**Frontend Component Rendering:**
+- What's not tested: User list component, date picker, error states, loading states
+- Files: `/home/tdolfen/Projects/github.com/BeerBILabs/frontend/project/components/UsersList.tsx`, `/home/tdolfen/Projects/github.com/BeerBILabs/frontend/project/components/UsersPage.tsx`
+- Risk: UI bugs not caught. Type errors from `any` types in `namesOut`/`avatarsOut` not validated.
+- Priority: Medium - detected by visual testing but slow
+
+**API Authorization:**
+- What's not tested: Bearer token validation, missing token rejection, invalid token rejection
+- Files: `/home/tdolfen/Projects/github.com/BeerBILabs/backend/bot/main.go` (lines 607-627)
+- Risk: Accidental removal of auth checks goes undetected. Public endpoints may be exposed.
+- Priority: High - security critical
+
+**Date Range Queries:**
+- What's not tested: Boundary conditions (year end, leap years), timezone handling, invalid dates
+- Files: `/home/tdolfen/Projects/github.com/BeerBILabs/backend/bot/store.go` (lines 245-272)
+- Risk: Off-by-one errors in date ranges. Timezone confusion between UTC and local.
+- Priority: Medium - affects correctness of analytics
+
+**Database Connection Errors:**
+- What's not tested: Database unreachable, corrupt database, quota exceeded, permission errors
+- Files: `/home/tdolfen/Projects/github.com/BeerBILabs/backend/bot/main.go` (lines 245-254)
+- Risk: Server starts successfully but fails on first query. No degraded mode fallback.
+- Priority: High - impacts reliability
 
 ---
 

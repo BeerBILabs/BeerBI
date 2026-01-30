@@ -4,164 +4,187 @@
 
 ## Pattern Overview
 
-**Overall:** Distributed service architecture with React-based frontend and Go-based backend, connected via HTTP API proxy pattern.
+**Overall:** Monorepo with decoupled frontend and backend services communicating via REST API. The backend is a Slack integration bot with persistence, while the frontend is a Next.js leaderboard UI.
 
 **Key Characteristics:**
-- Frontend proxies backend API requests to handle cross-origin and centralized authentication
-- Backend uses Slack Socket Mode to listen for real-time events
-- Separation of concerns: frontend for UI/UX, backend for event processing and data persistence
-- State stored in SQLite with query optimization via indexes
-- Metrics collection at HTTP handler level (Prometheus)
+- Monorepo structure with independent deployment targets (frontend and backend)
+- Backend operates as a Slack socket mode bot with HTTP REST API server
+- Frontend uses Next.js server components with client-side state management
+- API proxy pattern for secure token injection and backend communication
+- SQLite for persistence with idempotent event processing
 
 ## Layers
 
-**Frontend (Next.js):**
-- Purpose: Render leaderboard UI, handle user interactions, proxy API requests
-- Location: `/home/tdolfen/Projects/github.com/DanielWeeber/BeerBot-frontend/project`
-- Contains: React components, pages, API routes, utilities
-- Depends on: Backend API at `process.env.NEXT_PUBLIC_BACKEND_BASE`
-- Used by: Web browsers accessing the application
+**Frontend Presentation Layer:**
+- Purpose: Render interactive leaderboard UI with date filtering
+- Location: `frontend/project/app/page.tsx`, `frontend/project/components/`
+- Contains: React Server Components, Client Components, UI components, theme management
+- Depends on: Next.js runtime, React hooks, lucide-react icons, react-datepicker
+- Used by: End users via browser
 
-**Backend (Go):**
-- Purpose: Slack event listening, beer count aggregation, HTTP API server
-- Location: `/home/tdolfen/Projects/github.com/DanielWeeber/BeerBot-backend/bot`
-- Contains: HTTP handlers, event handlers, database layer, Slack connection management
-- Depends on: SQLite database, Slack API (Socket Mode), internal metrics
-- Used by: Frontend via `/api/*` routes, metrics scrapers
+**Frontend API Integration Layer:**
+- Purpose: Bridge frontend to backend via proxy server, inject authentication token server-side
+- Location: `frontend/project/app/api/proxy/[...path]/route.ts`, `frontend/project/app/api/health/route.ts`
+- Contains: Next.js API routes, token injection middleware, request forwarding logic
+- Depends on: `process.env.API_TOKEN`, `process.env.NEXT_PUBLIC_BACKEND_BASE`
+- Used by: Frontend client components via `/api/proxy/*` endpoints
 
-**Data Layer (SQLite):**
-- Purpose: Persistent storage of beer transactions
-- Location: Accessed via Store interface in `store.go`
-- Contains: `beers` table (giver, recipient, timestamp, count), `processed_events` table (idempotency), `emoji_counts` table (stats)
-- Depends on: `github.com/mattn/go-sqlite3`
-- Used by: Backend handlers for queries and mutations
+**Backend Slack Event Layer:**
+- Purpose: Connect to Slack, receive events via socket mode, parse beer emoji mentions
+- Location: `backend/bot/main.go` (lines 31-155: SlackConnectionManager, lines 418-556: event handler)
+- Contains: Socket mode connection management with exponential backoff reconnection, event deduplication
+- Depends on: Slack socket mode API, environment tokens (BOT_TOKEN, APP_TOKEN)
+- Used by: Main process to receive and process real-time events
+
+**Backend Data Persistence Layer:**
+- Purpose: Store beer transactions and event deduplication
+- Location: `backend/bot/store.go`
+- Contains: SQLite schema management, beer counting queries, event idempotency tracking
+- Depends on: SQLite database (`database/sql`), `github.com/mattn/go-sqlite3`
+- Used by: Main process for all data operations
+
+**Backend REST API Layer:**
+- Purpose: Expose beer counts, user lists, and health status to frontend
+- Location: `backend/bot/main.go` (lines 276-404: HTTP handlers and routes)
+- Contains: Handlers for `/api/given`, `/api/received`, `/api/user`, `/api/givers`, `/api/recipients`, `/api/health`
+- Depends on: Auth middleware, SQLite store, Slack API for user profiles
+- Used by: Frontend proxy to fetch leaderboard data
 
 ## Data Flow
 
-**Event Ingestion Flow:**
+**Beer Gift Flow:**
 
-1. Slack event occurs (reaction added to message)
-2. Slack Socket Mode client receives event via WebSocket (`slack.go`)
-3. `buildEventHandler()` in `slack.go` processes emoji reaction events
-4. Event handler validates: correct emoji, correct channel, no duplicate processing
-5. `TryMarkEventProcessed()` atomically checks and marks event as processed (prevents duplicates)
-6. `AddBeer()` inserts/updates beer transaction in SQLite (`store.go`)
-7. Metrics updated (`metrics.go`)
+1. User posts Slack message with mention `<@USERID>` and emoji (default `:beer:`)
+2. Slack socket mode delivers message event to `SlackConnectionManager.processEvents()`
+3. Event handler parses mentions and emojis using regex (`main.go` lines 468-494)
+4. Daily limit checked against `store.CountGivenOnDate()` (line 505-519)
+5. Beer transaction inserted via `store.AddBeer()` with unique constraint on `(giver_id, recipient_id, ts)` (line 542)
+6. Event ID marked processed via `store.TryMarkEventProcessed()` to prevent duplicates (line 458)
 
-**Query Flow (Leaderboard):**
+**Leaderboard Display Flow:**
 
-1. Frontend loads `UsersPage` component
-2. User selects date range (quick preset or custom)
-3. Component calls `/api/proxy/givers` and `/api/proxy/recipients` to fetch user lists
-4. Next.js proxy route (`app/api/proxy/[...path]/route.ts`) intercepts request
-5. Proxy adds API token from server environment (`process.env.API_TOKEN`)
-6. Proxy forwards to backend HTTP server
-7. Backend `newGiversHandler()` or `newRecipientsHandler()` queries store
-8. SQLite returns distinct user IDs
-9. Frontend then calls `/api/proxy/given?user=X&start=Y&end=Z` for each user
-10. Backend `newGivenHandler()` queries `CountGivenInDateRange()`
-11. Store queries indexed `beers` table with giver_id and ts_rfc date range
-12. Results returned to frontend, rendered in sorted leaderboard
+1. Frontend loads: `UsersPage.tsx` initializes with current year date range (lines 80-85)
+2. useEffect fetches `/api/proxy/givers` and `/api/proxy/recipients` (lines 91-92)
+3. Backend `/api/givers` and `/api/recipients` query distinct users from beers table (lines 348-374)
+4. Frontend `UsersList` component fetches stats for each user via `/api/proxy/given` and `/api/proxy/received` with concurrent workers (lines 48-76)
+5. Backend handlers count beers in date range using `CountGivenInDateRange()` and `CountReceivedInDateRange()` (lines 283-322)
+6. User details fetched via `/api/proxy/user` using Slack API `GetUserInfo()` (line 329)
+7. Leaderboard sorted by count descending, top 100 shown with avatars (lines 135-139)
 
 **State Management:**
 
-- Frontend: React component state (useState for stats, names, avatars)
-- Backend: SQLite (single source of truth), in-memory Slack connection state
-- Shared state: None (unidirectional flow from backend to frontend)
+**Frontend:**
+- `UsersPage` manages: `range` (start/end dates), `givers` and `recipients` lists
+- `UsersList` manages: `stats` (counts per user), `names` (real names), `avatars` (profile images)
+- State persistence: None (resets on page load; theme persists via localStorage)
+
+**Backend:**
+- Slack connection state: Maintained in `SlackConnectionManager` with mutex protection
+- Database state: SQLite tables for `beers`, `processed_events`, `emoji_counts`
+- Event deduplication: `processed_events` table prevents double-processing via `TryMarkEventProcessed()`
 
 ## Key Abstractions
 
-**Store Interface (Backend):**
-- Purpose: Abstract database operations from HTTP handlers
-- Examples: `store.go` defines `Store` interface; `SQLiteStore` implements it
-- Pattern: Go interface for dependency injection; allows testing with mock stores
+**SlackConnectionManager:**
+- Purpose: Abstract away Slack socket mode lifecycle and reconnection logic
+- Examples: `backend/bot/main.go` lines 31-155
+- Pattern: Connection pool with exponential backoff retry (max 5 minutes), health monitoring via `TestConnection()`
 
-**Event Handler Factory (Backend):**
-- Purpose: Encapsulate Slack event processing logic
-- Examples: `buildEventHandler()` in `slack.go` returns closure capturing store, client, channel ID
-- Pattern: Factory function returns event handler with dependencies bound
+**SQLiteStore:**
+- Purpose: Abstract database operations and schema migrations
+- Examples: `backend/bot/store.go` lines 10-160 (schema), 162-329 (query methods)
+- Pattern: Idempotent migrations with ALTER TABLE support, parameterized queries for safety
 
-**SlackConnectionManager (Backend):**
-- Purpose: Manage Socket Mode connection lifecycle with automatic reconnection
-- Examples: `slack.go`, synchronized with RWMutex for concurrent access
-- Pattern: Manager struct with exported GetClient/GetSocketClient, private state mutations
+**Proxy API Pattern:**
+- Purpose: Inject server-side secrets (API_TOKEN) into backend requests without exposing to client
+- Examples: `frontend/project/app/api/proxy/[...path]/route.ts` lines 5-63
+- Pattern: Catch-all route handler with request/response forwarding
 
-**HTTP Proxy Handler (Frontend):**
-- Purpose: Centralize backend routing and add server-side authentication
-- Examples: `app/api/proxy/[...path]/route.ts` uses catch-all dynamic routing
-- Pattern: Catch-all Next.js route handler forwarding to backend with injected auth
-
-**Concurrent Worker Pool (Frontend):**
-- Purpose: Limit concurrent requests while fetching user data
-- Examples: `UsersList.tsx` creates 5 worker tasks from queue
-- Pattern: Shared index variable with loop counter, cancellation flag
+**User Interface Components:**
+- Purpose: Reusable, typed React components with clear responsibilities
+- Examples: `UsersList` (data fetching + rendering), `DateRangePicker` (date selection), `ThemeProvider` (theme management)
+- Pattern: Separation of "use client" components from server components, prop-based composition
 
 ## Entry Points
 
-**Frontend Web Entry:**
-- Location: `app/page.tsx`
-- Triggers: Browser navigates to root path
-- Responsibilities: Renders UsersPage component (wrapper)
+**Frontend Entry Point:**
+- Location: `frontend/project/app/page.tsx`
+- Triggers: Browser navigation to `/`
+- Responsibilities: Render root `UsersPage` component (server component wrapper)
 
-**Frontend API Proxy:**
-- Location: `app/api/proxy/[...path]/route.ts`
-- Triggers: Any request to `/api/*` path
-- Responsibilities: Forward request to backend with injected API token, log request/response
+**Frontend API Proxy Entry Point:**
+- Location: `frontend/project/app/api/proxy/[...path]/route.ts`
+- Triggers: Client-side fetch to `/api/proxy/*`
+- Responsibilities: Forward request to backend, inject authorization header, transform response
 
-**Frontend Health Check:**
-- Location: `app/api/health/route.ts`
-- Triggers: `/api/health` requests
-- Responsibilities: Return health status
+**Backend Entry Point:**
+- Location: `backend/bot/main.go` (function main, line 202)
+- Triggers: Container/process startup
+- Responsibilities: Parse config, initialize DB and Slack manager, start HTTP server and event loop
 
-**Backend Main:**
-- Location: `bot/main.go`
-- Triggers: Container startup
-- Responsibilities: Parse config, initialize database, start HTTP server, connect Slack Socket Mode, handle graceful shutdown
-
-**Backend HTTP Handlers:**
-- Locations: `bot/http_handlers.go` (all handler registrations in `newMux()`)
-- Handlers:
-  - `/healthz` - Quick liveness check
-  - `/metrics` - Prometheus metrics
-  - `/api/given` - Count beers given by user in date range (auth required)
-  - `/api/received` - Count beers received by user in date range (auth required)
-  - `/api/user` - Get user info from Slack (auth required)
-  - `/api/givers` - List all users who gave beer (no auth)
-  - `/api/recipients` - List all users who received beer (no auth)
-  - `/api/health` - Slack connection health
+**Slack Event Processing Entry Point:**
+- Location: `backend/bot/main.go` (eventHandler function, lines 419-556)
+- Triggers: Slack socket mode event delivery
+- Responsibilities: Parse message event, extract mentions and emojis, validate daily limits, persist beer transaction
 
 ## Error Handling
 
-**Strategy:** Fail-fast with context; log then return HTTP error status.
+**Strategy:** Explicit error propagation with graceful degradation. Database errors logged and returned to API caller. Slack connection errors trigger exponential backoff reconnection.
 
 **Patterns:**
 
-- Frontend: Try-catch async/await with `console.error()` fallback, returns count of 0 on error
-- Backend: Return HTTP status codes (400 for validation, 401 for auth, 500 for internal errors)
-- Backend: Structured logging with `zerolog` at appropriate levels (info, warn, error)
-- Database: Transaction-like safety via unique constraints and atomic flag checks (`TryMarkEventProcessed`)
+- **API Errors:** HTTP status codes (400 for bad request, 401 for unauthorized, 500 for server error) with JSON error body
+  - Example: `frontend/project/app/api/proxy/[...path]/route.ts` lines 44-62 (try-catch with 500 response)
+
+- **Slack Connection Errors:** Logged and queued for retry with backoff
+  - Example: `backend/bot/main.go` lines 123-147 (TestConnection failures increment reconnectCount)
+
+- **Database Errors:** Wrapped with context, returned to caller
+  - Example: `backend/bot/store.go` lines 245-258 (CountGivenInDateRange with error return)
+
+- **Event Processing Errors:** Logged via zerolog, event not marked processed (will retry on redelivery)
+  - Example: `backend/bot/main.go` lines 459, 508, 516 (zlog.Error() calls)
+
+- **Frontend Fetch Errors:** Caught, user data defaults to username, avatars default to null
+  - Example: `frontend/project/components/UsersList.tsx` lines 68-71, 111-115 (catch blocks set defaults)
 
 ## Cross-Cutting Concerns
 
 **Logging:**
-- Frontend: `lib/logger.ts` provides leveled logger (debug/info/warn/error) with JSON metadata
-- Backend: `zerolog` with console writer to stderr, RFC3339 timestamps, fields via context
-- Proxy handler logs request details: method, path, query params, auth source, duration
+
+- **Backend:** Structured logging via `github.com/rs/zerolog` with console writer; log level INFO for beer events, ERROR for failures
+  - Example: `backend/bot/main.go` lines 264-266 (zerolog setup), 545 (beer given log)
+
+- **Frontend:** Console logging for errors only via `console.error()`
+  - Example: `frontend/project/components/UsersList.tsx` lines 69, 112 (error logging)
 
 **Validation:**
-- Frontend: Type checking via TypeScript, required query params checked in handlers
-- Backend: Query params parsed and validated (e.g., `parseDateRangeFromParams()` checks date format)
-- Backend: Bearer token validation in `authMiddleware()`
+
+- **Backend:** Date range parsing from query params with error messages
+  - Example: `backend/bot/main.go` lines 178-200 (parseDateRangeFromParams validates format)
+
+- **Frontend:** Optional date range with fallback to current year, URL search param validation in proxy route
 
 **Authentication:**
-- Frontend: Uses hardcoded `API_TOKEN` injected from server environment
-- Backend: Bearer token validation; token passed via Authorization header by proxy
-- No user authentication (assumes all requests in trusted Slack workspace)
 
-**Metrics:**
-- Backend: Prometheus metrics for HTTP request count/duration by endpoint and method
-- Backend: Slack connection status tracked (connected/disconnected) and exposed in `/api/health`
-- Timing: Captured via `time.Now()` in handlers, logged to console
+- **Backend:** Bearer token via Authorization header, middleware enforces token match against env var
+  - Example: `backend/bot/main.go` lines 607-627 (authMiddleware checks Bearer token)
+
+- **Frontend:** Token injected server-side in proxy route, never exposed to browser
+  - Example: `frontend/project/app/api/proxy/[...path]/route.ts` lines 20, 27 (API_TOKEN from env)
+
+**Rate Limiting:**
+
+- **Backend:** Daily limit per user enforced via `CountGivenOnDate()` check before beer transaction (line 505-519)
+  - Default: 10 beers/day (configurable via MAX_PER_DAY env var)
+
+**Concurrency:**
+
+- **Frontend:** Worker pool pattern for fetching stats/names in parallel (5 concurrent workers)
+  - Example: `frontend/project/components/UsersList.tsx` lines 46-76 (worker function pattern)
+
+- **Backend:** Goroutine-based async Slack event processing with mutex-protected connection state
+  - Example: `backend/bot/main.go` lines 159-174 (processEvents loop), lines 57-74 (mutex for IsConnected)
 
 ---
 

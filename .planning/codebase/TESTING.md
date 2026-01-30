@@ -4,215 +4,199 @@
 
 ## Test Framework
 
-**Status:** No automated testing framework configured or detected
+**Runner:**
+- Backend: Go's built-in `testing` package
+- Frontend: Not detected - no test framework or configuration found
 
-**Framework:**
-- None detected (No Jest, Vitest, or other test runner installed)
-- `package.json` contains no test dependencies or test scripts
-- No test configuration files found (`jest.config.*`, `vitest.config.*`, `mocha.config.*`)
-- No test files found in codebase (no `*.test.*` or `*.spec.*` files)
+**Assertion Library:**
+- Backend: Standard Go testing with manual assertions (no assertion library like testify)
+- Frontend: Not applicable
 
-**Build Tools:**
-- ESLint (linting only, not testing)
-- TypeScript (type checking, not runtime testing)
-- Next.js built-in validation
-
-**Available Commands:**
+**Run Commands:**
 ```bash
-npm run dev       # Start development server
-npm run build     # Build for production
-npm run start     # Start production server
-npm run lint      # Run ESLint
+go test ./...            # Run all tests in backend
+go test -v ./...         # Run with verbose output
+go test ./bot -run TestSQLiteStore_IncGet  # Run specific test
 ```
 
 ## Test File Organization
 
-**Current State:**
-- No test directory structure exists
-- No test fixtures, factories, or test utilities present
-- No mocking libraries configured
+**Location:**
+- Backend: Co-located in same directory as source files
+  - Pattern: `store.go` paired with `store_test.go`, `store_givers_test.go`
+  - Location: `/home/tdolfen/Projects/github.com/BeerBILabs/backend/bot/`
+
+**Naming:**
+- Backend: `{subject}_test.go` or `{subject}_{aspect}_test.go`
+  - Example: `store_test.go` (general store tests), `store_givers_test.go` (giver-specific tests)
+
+**Structure:**
+```
+backend/bot/
+├── main.go
+├── store.go
+├── store_test.go           # Tests for store functionality
+├── store_givers_test.go    # Tests for giver-specific operations
+└── testdata/
+    └── test.db             # Generated during tests
+```
 
 ## Test Structure
 
-**Recommendation for Future Implementation:**
+**Suite Organization:**
+```go
+package main
 
-If testing is added, follow these patterns based on codebase analysis:
+import (
+    "database/sql"
+    "os"
+    "testing"
+    "time"
+    "fmt"
 
-**Unit Testing Pattern:**
-```typescript
-// Recommended: components/__tests__/UsersList.test.tsx
-// or components/UsersList.test.tsx (co-located)
+    _ "github.com/mattn/go-sqlite3"
+)
 
-describe('UsersList', () => {
-  it('should display users sorted by count', () => {
-    // Test implementation
-  })
+func TestSQLiteStore_IncGet(t *testing.T) {
+    // Setup
+    dbPath := "./testdata/test.db"
+    _ = os.Remove(dbPath)
+    if err := os.MkdirAll("./testdata", 0o755); err != nil {
+        t.Fatalf("mkdir testdata: %v", err)
+    }
+    // ...
 
-  it('should fetch stats with concurrent requests', () => {
-    // Test concurrent worker pattern from UsersList.tsx
-  })
-})
+    // Assertion
+    if c, _ := s.GetCount(user, emoji); c != 0 {
+        t.Fatalf("expected 0, got %d", c)
+    }
+}
 ```
 
-**Component Testing:**
-- Components use React hooks extensively (useState, useEffect, useRef)
-- Async operations with debouncing and cancellation would require mocking fetch
-- Concurrency patterns (worker pool) are complex and would benefit from integration tests
-
-**Utility Testing Pattern:**
-```typescript
-// lib/__tests__/logger.test.ts
-describe('logger', () => {
-  it('should respect log level filtering', () => {
-    // Test LEVELS lookup and shouldLog() logic
-  })
-
-  it('withTiming should measure operation duration', async () => {
-    // Test performance measurement in withTiming<T>()
-  })
-})
-```
+**Patterns:**
+- Setup: Create test database, initialize store, clean up after with defer
+- Assertions: Manual comparison with `if actual != expected { t.Fatalf(...) }`
+- Defer cleanup: `defer func() { db.Close(); _ = os.Remove(dbPath) }()`
+- Error handling: `t.Fatalf()` for test failures, stops test execution
 
 ## Mocking
 
-**Current Status:** No mocking libraries installed
+**Framework:** Not used - tests use real dependencies (SQLite database)
 
-**Would Need:**
-- `jest` or `vitest` for test runner and basic mocking
-- `@testing-library/react` for component testing
-- `fetch-mock` or `msw` for API mocking (heavy fetch usage throughout)
+**Patterns:**
+- Real SQLite database created per test: `sql.Open("sqlite3", dbPath+"?_foreign_keys=1")`
+- Database is created fresh for each test: `_ = os.Remove(dbPath)` clears old test data
+- Deferred cleanup: `defer func() { db.Close(); _ = os.Remove(dbPath) }()`
 
-**API Mocking Needs:**
-- `/api/proxy/given` - returns stats object with user keys
-- `/api/proxy/received` - returns stats object with user keys
-- `/api/proxy/user` - returns JSON with `real_name` and `profile_image`
-- `/api/proxy/givers` - returns string array
-- `/api/proxy/recipients` - returns string array
+**What to Mock:**
+- Slack API connections: Not mocked in visible tests; likely tested at integration level
+- Network calls: Implicit in `socketmode.Client` usage, not mocked in unit tests
 
-**Fetch Usage in Code:**
-```typescript
-// UsersList.tsx makes concurrent fetch calls
-const resp = await fetch(`${path}?${q.toString()}`)
-const j = await resp.json()
-
-// UsersPage.tsx fetches user lists
-const gResp = await withTiming('fetch_givers', () => fetch('/api/proxy/givers'))
-```
-
-**State Management Complexity:**
-- Multiple concurrent fetches with cancellation tracking
-- useState with refs for mounted status and previous arguments
-- Debouncing with setTimeout (200ms)
-- Worker pool pattern with concurrency limit (5 concurrent requests)
+**What NOT to Mock:**
+- Database: Use real SQLite with test database files
+- Store implementation: Test actual SQLiteStore with real schema
 
 ## Fixtures and Factories
 
-**Current State:** None present
+**Test Data:**
+```go
+// From store_test.go
+user := "U123"
+emoji := "beer"
 
-**Would Need for Testing:**
+// From store_test.go TestSQLiteStore_Beers
+giver := "U1"
+recv := "U2"
+now := time.Now().UTC()
+ts1 := fmt.Sprintf("%d.000000", now.Unix())
+ts2 := fmt.Sprintf("%d.000000", now.Add(time.Second).Unix())
 
-**User Data Fixtures:**
-```typescript
-// Would be placed at: lib/__tests__/fixtures/users.ts
-export const mockUsers = [
-  'alice@slack.com',
-  'bob@slack.com',
-  'charlie@slack.com'
-]
-
-export const mockStats = {
-  'alice@slack.com': 42,
-  'bob@slack.com': 38,
-  'charlie@slack.com': 25
-}
-
-export const mockUserDetails = {
-  'alice@slack.com': {
-    real_name: 'Alice Smith',
-    profile_image: 'https://example.com/alice.jpg'
-  }
-}
+// Setup store with data
+if err := s.AddBeer(giver, recv, ts1, now, 1); err != nil { t.Fatalf("addbeer: %v", err) }
+if err := s.AddBeer(giver, recv, ts2, now.Add(time.Second), 1); err != nil { t.Fatalf("addbeer2: %v", err) }
 ```
 
-**Date Range Fixtures:**
-```typescript
-export const dateRanges = {
-  today: { start: '2026-01-30', end: '2026-01-30' },
-  thisYear: { start: '2026-01-01', end: '2026-01-30' }
-}
-```
+**Location:**
+- Test data defined inline within test functions
+- Testdata directory: `./testdata/` contains generated SQLite database files
+- No separate fixtures or factory functions; data created by calling store methods
 
 ## Coverage
 
-**Requirements:** None enforced (no test framework)
+**Requirements:** None enforced - no coverage configuration detected
 
-**Current Coverage:** 0% - No tests exist
-
-**High-Risk Areas Needing Tests (if framework added):**
-- `UsersList.tsx` - Complex concurrent fetch logic with cancellation
-- `UsersPage.tsx` - Date range handling and API integration
-- `lib/logger.ts` - Log level filtering and timing measurement
-- API proxy route - Header injection, request forwarding
+**View Coverage:**
+```bash
+go test ./bot -cover                    # Show coverage percentage
+go test ./bot -coverprofile=coverage.out  # Generate coverage report
+go tool cover -html=coverage.out        # View in browser
+```
 
 ## Test Types
 
-**Unit Tests (if implemented):**
-- Logger functionality (level filtering, formatting)
-- Date range utilities (if extracted from UsersPage.tsx)
-- Type guards and utility functions
+**Unit Tests:**
+- Scope: Test individual store operations (increment counters, add beers, count operations)
+- Approach: Isolated tests with fresh SQLite database per test
+- Examples:
+  - `TestSQLiteStore_IncGet`: Tests emoji count increment and retrieval
+  - `TestSQLiteStore_Beers`: Tests beer addition and counting operations
 
-**Integration Tests (if implemented):**
-- Component rendering with mocked API responses
-- End-to-end flow: date selection → fetch → display results
-- API proxy forwarding requests and headers correctly
+**Integration Tests:**
+- Not explicitly present in codebase
+- Slack connection handling likely tested in main.go but no visible test files
 
 **E2E Tests:**
-- Not currently used
-- Would require Playwright, Cypress, or similar
-- Would test full user flows in browser
+- Not used in this codebase
 
-## Testing Gaps
+## Common Patterns
 
-**Critical Untested Areas:**
+**Synchronous Testing:**
+- Go's standard `testing.T` is synchronous
+- Async operations in production code (like socketmode) not tested in visible test suite
 
-1. **Concurrent Request Handling** (`UsersList.tsx` lines 46-76, 95-119)
-   - Worker pool pattern with cancellation
-   - Race condition handling with mounted refs
-   - Debouncing preventing duplicate requests
+**Error Testing:**
+```go
+// Pattern: Test operations that may return errors
+if c, _ := s.GetCount(user, emoji); c != 0 {
+    t.Fatalf("expected 0, got %d", c)
+}
 
-2. **API Proxy Authentication** (`app/api/proxy/[...path]/route.ts` lines 17-29)
-   - Authorization header injection from env vars
-   - Client header propagation
-   - Fallback to HARDCODED_API_TOKEN
+// Error ignored with _ if not critical to test
+// Error checked with t.Fatalf() if critical
+if err := s.IncEmoji(user, emoji); err != nil {
+    t.Fatalf("inc1: %v", err)
+}
+```
 
-3. **Error Recovery** (throughout components)
-   - Failed fetch calls defaulting to 0/null
-   - Network errors logged to console.error
-   - Incomplete error reporting (no structured logging in catch blocks)
+**Database Isolation:**
+```go
+// Pattern: Fresh database per test
+func TestSQLiteStore_IncGet(t *testing.T) {
+    dbPath := "./testdata/test.db"
+    _ = os.Remove(dbPath)  // Remove any old test database
+    // ...
+    defer func() {
+        db.Close()
+        _ = os.Remove(dbPath)  // Cleanup after test
+    }()
+}
+```
 
-4. **Date Range Logic** (`UsersPage.tsx` lines 11-77)
-   - Quick range calculations (today, last week, year ranges)
-   - Date boundary handling (last day of month, year transitions)
-   - SSR/CSR time drift prevention
+## Frontend Testing
 
-5. **Component State Synchronization**
-   - Multiple concurrent useEffect hooks in UsersList
-   - Stale dependency warnings (line 86 has eslint-disable)
-   - Mount state tracking with useRef for safety
+**Status:** No testing framework configured
 
-## Code Quality Observations
+**Notes:**
+- No Jest, Vitest, or other testing packages in package.json
+- No .test.tsx or .spec.ts files found
+- No test configuration files (jest.config.js, vitest.config.ts)
+- Components are interactive but untested (UsersList, ThemeToggle, DateRangePicker)
+- API routes (`app/api/health/route.ts`, `app/api/proxy/[...path]/route.ts`) are untested
 
-**Current Testing Debt:**
-- No test infrastructure means any refactoring carries high risk
-- Complex async patterns (concurrency, debouncing, cancellation) lack verification
-- API integration untested - proxy behavior unknown without manual testing
-- Type system alone (TypeScript with strictNullChecks) provides partial safety
-
-**Why Testing Matters for This Codebase:**
-- Concurrent request handling is easy to break
-- Fetch error handling is basic (just defaults to 0)
-- No integration between components and API tested
-- Date range calculations have edge cases (month/year boundaries)
+**Recommendation for Future Implementation:**
+- Consider adding Vitest (lightweight, TypeScript-first alternative to Jest)
+- Test React components with React Testing Library or Vitest's shallow rendering
+- Test API routes with node-fetch or API test utilities
 
 ---
 
