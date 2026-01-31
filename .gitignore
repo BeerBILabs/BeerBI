@@ -25,12 +25,12 @@
 .github/.history
 
 # Bot-specific data
-/bot/data/
-/bot/*.db
-/bot/*.sqlite
-/bot/testdata/
-/bot/.env
-/bot/bot
+backend/bot/data/
+backend/bot/*.db
+backend/bot/*.sqlite
+backend/bot/testdata/
+backend/bot/.env
+backend/bot/bot
 
 # Docker
 docker-compose.override.yml
