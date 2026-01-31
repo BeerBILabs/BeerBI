@@ -66,30 +66,30 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DEP-01 | — | Pending |
-| DEP-02 | — | Pending |
-| DEP-03 | — | Pending |
-| DEP-04 | — | Pending |
-| THEME-01 | — | Pending |
-| THEME-02 | — | Pending |
-| THEME-03 | — | Pending |
-| THEME-04 | — | Pending |
-| THEME-05 | — | Pending |
-| THEME-06 | — | Pending |
-| THEME-07 | — | Pending |
-| QRANK-01 | — | Pending |
-| QRANK-02 | — | Pending |
-| QRANK-03 | — | Pending |
-| QRANK-04 | — | Pending |
-| QRANK-05 | — | Pending |
-| QRANK-06 | — | Pending |
-| QRANK-07 | — | Pending |
+| DEP-01 | Phase 1 | Pending |
+| DEP-02 | Phase 1 | Pending |
+| DEP-03 | Phase 1 | Pending |
+| DEP-04 | Phase 1 | Pending |
+| THEME-01 | Phase 2 | Pending |
+| THEME-02 | Phase 2 | Pending |
+| THEME-03 | Phase 2 | Pending |
+| THEME-04 | Phase 2 | Pending |
+| THEME-05 | Phase 2 | Pending |
+| THEME-06 | Phase 2 | Pending |
+| THEME-07 | Phase 2 | Pending |
+| QRANK-01 | Phase 3 | Pending |
+| QRANK-02 | Phase 3 | Pending |
+| QRANK-03 | Phase 3 | Pending |
+| QRANK-04 | Phase 3 | Pending |
+| QRANK-05 | Phase 3 | Pending |
+| QRANK-06 | Phase 3 | Pending |
+| QRANK-07 | Phase 3 | Pending |
 
 **Coverage:**
 - v1 requirements: 18 total
-- Mapped to phases: 0 (pending roadmap)
-- Unmapped: 18
+- Mapped to phases: 18 (100% coverage)
+- Unmapped: 0
 
 ---
 *Requirements defined: 2026-01-31*
-*Last updated: 2026-01-31 after initial definition*
+*Last updated: 2026-01-31 after roadmap creation*
