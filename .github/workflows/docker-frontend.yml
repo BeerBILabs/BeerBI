@@ -3,7 +3,7 @@ name: Frontend - Build and Push Docker Image
 on:
   push:
     branches: [ main ]
-    tags: [ 'v*' ]
+    tags: [ 'frontend-v*' ]
     paths:
       - 'frontend/**'
       - '.github/workflows/docker-frontend.yml'
@@ -16,7 +16,7 @@ on:
 
 env:
   REGISTRY: docker.io
-  IMAGE_NAME: danielweeber/beerbot-frontend
+  IMAGE_NAME: beerbilabs/beerbi-frontend
 
 jobs:
   build-and-push:
@@ -28,6 +28,17 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/frontend-v* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/frontend-v}
+            echo "version=$VERSION" >> $GITHUB_OUTPUT
+            echo "is_release=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_release=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -49,9 +60,9 @@ jobs:
             type=ref,event=branch
             type=ref,event=pr
             type=sha,prefix=sha-{{branch}}-
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
+            type=semver,pattern={{version}},value=${{ steps.version.outputs.version }},enable=${{ steps.version.outputs.is_release == 'true' }}
+            type=semver,pattern={{major}}.{{minor}},value=${{ steps.version.outputs.version }},enable=${{ steps.version.outputs.is_release == 'true' }}
+            type=semver,pattern={{major}},value=${{ steps.version.outputs.version }},enable=${{ steps.version.outputs.is_release == 'true' }}
             type=raw,value=latest,enable={{is_default_branch}}
 
       - name: Build and push Docker image
