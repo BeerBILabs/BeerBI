@@ -2,7 +2,6 @@ name: Backend - Build and Push Docker Image
 
 on:
   push:
-    branches: [ main ]
     tags: [ 'backend-v*' ]
     paths:
       - 'backend/**'
