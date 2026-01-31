@@ -1,6 +1,5 @@
 services:
-  backend:
-    container_name: beerbot_backend_dev
+  backend-dev:
     build:
       context: ./backend/bot
       dockerfile: ../../docker/backend/Dockerfile
@@ -18,10 +17,9 @@ services:
     networks:
       - beerbot
 
-  frontend:
-    container_name: beerbot_frontend_dev
+  frontend-dev:
     build:
-      context: ./frontend
+      context: ./frontend/project
       dockerfile: ../docker/frontend/Dockerfile.dev
     restart: unless-stopped
     ports:

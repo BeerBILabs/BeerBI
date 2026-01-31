@@ -1,6 +1,5 @@
 services:
   backend-test:
-    container_name: beerbot_backend_test
     build:
       context: ./backend/bot
       dockerfile: ../../docker/backend/Dockerfile
@@ -12,7 +11,6 @@ services:
       - beerbot-test
 
   frontend-test:
-    container_name: beerbot_frontend_test
     build:
       context: ./frontend/project
       dockerfile: ../../docker/frontend/Dockerfile
