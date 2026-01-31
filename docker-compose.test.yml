@@ -1,0 +1,27 @@
+services:
+  backend-test:
+    container_name: beerbot_backend_test
+    build:
+      context: ./backend/bot
+      dockerfile: ../../docker/backend/Dockerfile
+      target: test
+    volumes:
+      - ./backend/bot:/src
+      - ./backend/bot/data:/data
+    networks:
+      - beerbot-test
+
+  frontend-test:
+    container_name: beerbot_frontend_test
+    build:
+      context: ./frontend/project
+      dockerfile: ../../docker/frontend/Dockerfile
+    environment:
+      NEXT_PUBLIC_BACKEND_BASE: "http://localhost:8080"
+    command: bun run build
+    networks:
+      - beerbot-test
+
+networks:
+  beerbot-test:
+    driver: bridge

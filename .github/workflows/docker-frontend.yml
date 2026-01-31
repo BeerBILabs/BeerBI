@@ -1,16 +1,22 @@
-name: Build and Push Docker Image
+name: Frontend - Build and Push Docker Image
 
 on:
   push:
     branches: [ main ]
     tags: [ 'v*' ]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/docker-frontend.yml'
   pull_request:
     branches: [ main ]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/docker-frontend.yml'
   workflow_dispatch:
 
 env:
   REGISTRY: docker.io
-  IMAGE_NAME: danielweeber/beerbot-backend
+  IMAGE_NAME: danielweeber/beerbot-frontend
 
 jobs:
   build-and-push:
@@ -51,19 +57,21 @@ jobs:
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: ./bot
-          file: ./bot/Dockerfile
+          context: ./frontend/project
+          file: ./frontend/docker/Dockerfile
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           platforms: linux/amd64,linux/arm64
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+            NEXT_PUBLIC_BACKEND_BASE=${{ vars.NEXT_PUBLIC_BACKEND_BASE || 'http://localhost:8080' }}
 
       - name: Generate build summary
         if: github.event_name != 'pull_request'
         run: |
-          echo "## Docker Image Build Summary 🐳" >> $GITHUB_STEP_SUMMARY
+          echo "## Frontend Docker Image Build Summary 🐳" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Repository:** \`${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}\`" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
@@ -76,5 +84,5 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Pull command:**" >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY

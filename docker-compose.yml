@@ -1,0 +1,51 @@
+services:
+  backend:
+    container_name: beerbot_backend
+    build:
+      context: ./backend/bot
+      dockerfile: ../../docker/backend/Dockerfile
+    restart: unless-stopped
+    volumes:
+      - ./backend/bot/data:/data
+    ports:
+      - "8080:8080"
+    environment:
+      - PORT=8080
+      - DB_PATH=/data/bot.db
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+        reservations:
+          memory: 128M
+          cpus: '0.25'
+    networks:
+      - beerbot
+
+  frontend:
+    container_name: beerbot_frontend
+    build:
+      context: ./frontend/project
+      dockerfile: ../../docker/frontend/Dockerfile
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_BACKEND_BASE: "http://localhost:8080"
+      NEXT_PUBLIC_API_TOKEN: "my-secret-token"
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - beerbot
+
+networks:
+  beerbot:
+    driver: bridge
