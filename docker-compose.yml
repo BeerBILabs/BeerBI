@@ -1,6 +1,5 @@
 services:
   backend:
-    container_name: beerbot_backend
     build:
       context: ./backend/bot
       dockerfile: ../../docker/backend/Dockerfile
@@ -30,7 +29,6 @@ services:
       - beerbot
 
   frontend:
-    container_name: beerbot_frontend
     build:
       context: ./frontend/project
       dockerfile: ../../docker/frontend/Dockerfile
