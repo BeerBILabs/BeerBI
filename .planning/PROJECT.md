@@ -8,6 +8,17 @@ BeerBot is a Slack bot that tracks beer-related recognition between team members
 
 The leaderboard must accurately reflect beer transactions — if someone gives or receives a beer, it must be counted and displayed correctly.
 
+## Current Milestone: v1.0 Stack Modernization & UI Features
+
+**Goal:** Update all dependencies to latest stable versions and add beer-branded theming with quarterly ranking navigation.
+
+**Target features:**
+- Dependency updates (Next.js 15.5.11, Go 1.25.6, Bun 1.3.7, Docker Alpine 3.23)
+- Beer-branded light/dark theme with toggle, persistence, and FOUC prevention
+- Quarterly ranking pages (Q1-Q4) with year selector and shortcuts
+
+**Phases:** 3 | **Requirements:** 18 | See `.planning/ROADMAP.md`
+
 ## Requirements
 
 ### Validated
@@ -65,4 +76,4 @@ The leaderboard must accurately reflect beer transactions — if someone gives o
 | Local LLM for v2 | Privacy, no API costs, offline capability | — Pending |
 
 ---
-*Last updated: 2026-01-30 after initialization*
+*Last updated: 2026-01-31 after milestone v1.0 roadmap creation*
