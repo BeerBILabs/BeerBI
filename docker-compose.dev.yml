@@ -8,6 +8,8 @@ services:
     volumes:
       - ./backend/bot:/src
       - ./backend/bot/data:/data
+    env_file:
+      - ./.env
     ports:
       - "8080:8080"
     environment:
