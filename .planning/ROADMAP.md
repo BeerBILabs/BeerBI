@@ -28,10 +28,12 @@ Decimal phases appear between their surrounding integers in numeric order.
   3. Bun runtime updated to 1.3.7 and dev server starts successfully
   4. Docker images use Alpine 3.23 and containers build without errors
   5. All existing leaderboard functionality verified working (date ranges, user data)
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] TBD (pending plan-phase)
+- [ ] 01-01-PLAN.md - Upgrade Go backend toolchain to 1.25.6
+- [ ] 01-02-PLAN.md - Upgrade Next.js to 15.5.11
+- [ ] 01-03-PLAN.md - Update Docker base images (Alpine 3.23, Bun 1.3.7)
 
 ### Phase 2: Beer-Branded Theming
 **Goal**: Users can toggle between light and dark themes with beer-branded colors
@@ -74,6 +76,6 @@ Phases execute in numeric order: 1 → 2 → 3
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Dependency Modernization | 0/TBD | Not started | - |
+| 1. Dependency Modernization | 0/3 | Ready | - |
 | 2. Beer-Branded Theming | 0/TBD | Not started | - |
 | 3. Quarterly Rankings | 0/TBD | Not started | - |
