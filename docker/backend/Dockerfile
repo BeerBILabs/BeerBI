@@ -16,7 +16,7 @@ COPY . .
 RUN go build -o /bin/bot ./
 
 # Step 2: Create the final image
-FROM alpine:3.20
+FROM alpine:3.23
 RUN apk add --no-cache ca-certificates wget curl
 COPY --from=builder /bin/bot /bin/bot
 VOLUME /data
