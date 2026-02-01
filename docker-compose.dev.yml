@@ -14,13 +14,16 @@ services:
     environment:
       - PORT=8080
       - DB_PATH=/data/bot.db
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
     networks:
       - beerbot
 
   frontend-dev:
     build:
       context: ./frontend/project
-      dockerfile: ../docker/frontend/Dockerfile.dev
+      dockerfile: ../../docker/frontend/Dockerfile.dev
     restart: unless-stopped
     ports:
       - "3000:3000"
@@ -30,7 +33,7 @@ services:
     volumes:
       - ./frontend/project:/app/beerbot
     depends_on:
-      - backend
+      - backend-dev
     networks:
       - beerbot
 
