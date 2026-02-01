@@ -12,7 +12,7 @@ BeerBot v1.0 modernizes the stack and adds themed UI features. Starting with dep
 
 Decimal phases appear between their surrounding integers in numeric order.
 
-- [ ] **Phase 1: Dependency Modernization** - Update stack to latest stable versions
+- [x] **Phase 1: Dependency Modernization** - Update stack to latest stable versions
 - [ ] **Phase 2: Beer-Branded Theming** - Add light/dark mode with branded color palette
 - [ ] **Phase 3: Quarterly Rankings** - Enable quarter-by-quarter leaderboard navigation
 
@@ -31,9 +31,9 @@ Decimal phases appear between their surrounding integers in numeric order.
 **Plans**: 3 plans
 
 Plans:
-- [ ] 01-01-PLAN.md - Upgrade Go backend toolchain to 1.25.6
-- [ ] 01-02-PLAN.md - Upgrade Next.js to 15.5.11
-- [ ] 01-03-PLAN.md - Update Docker base images (Alpine 3.23, Bun 1.3.7)
+- [x] 01-01-PLAN.md - Upgrade Go backend toolchain to 1.25.6
+- [x] 01-02-PLAN.md - Upgrade Next.js to 15.5.11
+- [x] 01-03-PLAN.md - Update Docker base images (Alpine 3.23, Bun 1.3.7)
 
 ### Phase 2: Beer-Branded Theming
 **Goal**: Users can toggle between light and dark themes with beer-branded colors
@@ -76,6 +76,6 @@ Phases execute in numeric order: 1 → 2 → 3
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Dependency Modernization | 0/3 | Ready | - |
+| 1. Dependency Modernization | 3/3 | Complete | 2026-02-01 |
 | 2. Beer-Branded Theming | 0/TBD | Not started | - |
 | 3. Quarterly Rankings | 0/TBD | Not started | - |

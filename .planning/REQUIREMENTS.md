@@ -9,10 +9,10 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Dependencies
 
-- [ ] **DEP-01**: Next.js updated to 15.5.11 with verified functionality
-- [ ] **DEP-02**: Go backend updated to 1.25.6 with verified functionality
-- [ ] **DEP-03**: Bun runtime updated to 1.3.7 with verified functionality
-- [ ] **DEP-04**: Docker base images updated to Alpine 3.23
+- [x] **DEP-01**: Next.js updated to 15.5.11 with verified functionality
+- [x] **DEP-02**: Go backend updated to 1.25.6 with verified functionality
+- [x] **DEP-03**: Bun runtime updated to 1.3.7 with verified functionality
+- [x] **DEP-04**: Docker base images updated to Alpine 3.23
 
 ### Theming
 
@@ -66,10 +66,10 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| DEP-01 | Phase 1 | Pending |
-| DEP-02 | Phase 1 | Pending |
-| DEP-03 | Phase 1 | Pending |
-| DEP-04 | Phase 1 | Pending |
+| DEP-01 | Phase 1 | Complete |
+| DEP-02 | Phase 1 | Complete |
+| DEP-03 | Phase 1 | Complete |
+| DEP-04 | Phase 1 | Complete |
 | THEME-01 | Phase 2 | Pending |
 | THEME-02 | Phase 2 | Pending |
 | THEME-03 | Phase 2 | Pending |
@@ -92,4 +92,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-01-31*
-*Last updated: 2026-01-31 after roadmap creation*
+*Last updated: 2026-02-01 after Phase 1 completion*
