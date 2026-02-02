@@ -1,8 +1,16 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { ChartContainer } from "./ChartContainer";
 import { defaultChartColors } from "@/lib/chartTheme";
+
+interface TooltipState {
+  visible: boolean;
+  x: number;
+  y: number;
+  date: string;
+  count: number;
+}
 
 interface HeatmapPoint {
   date: string;
@@ -44,6 +52,31 @@ export function ActivityHeatmap({ startDate, endDate }: ActivityHeatmapProps) {
   const [data, setData] = useState<HeatmapPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [tooltip, setTooltip] = useState<TooltipState>({
+    visible: false,
+    x: 0,
+    y: 0,
+    date: "",
+    count: 0,
+  });
+
+  const handleMouseEnter = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>, date: string, count: number) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      setTooltip({
+        visible: true,
+        x: rect.left + rect.width / 2,
+        y: rect.top - 8,
+        date,
+        count,
+      });
+    },
+    []
+  );
+
+  const handleMouseLeave = useCallback(() => {
+    setTooltip((prev) => ({ ...prev, visible: false }));
+  }, []);
 
   useEffect(() => {
     async function fetchData() {
@@ -111,8 +144,36 @@ export function ActivityHeatmap({ startDate, endDate }: ActivityHeatmapProps) {
       loading={loading}
       error={error}
     >
-      <div className="overflow-x-auto">
-        <div className="inline-flex gap-1">
+      <div className="relative">
+        {/* Custom Tooltip - positioned fixed to escape overflow */}
+        {tooltip.visible && (
+          <div
+            className="fixed z-50 px-3 py-2 text-xs font-medium rounded-lg shadow-lg pointer-events-none"
+            style={{
+              left: tooltip.x,
+              top: tooltip.y,
+              transform: "translate(-50%, -100%)",
+              backgroundColor: "hsl(var(--card))",
+              color: "hsl(var(--card-foreground))",
+              border: "1px solid hsl(var(--border))",
+            }}
+          >
+            <div className="font-semibold">
+              {new Date(tooltip.date).toLocaleDateString("de-DE", {
+                weekday: "short",
+                day: "numeric",
+                month: "short",
+                year: "numeric",
+              })}
+            </div>
+            <div style={{ color: "hsl(var(--primary))" }}>
+              {tooltip.count} {tooltip.count === 1 ? "beer" : "beers"}
+            </div>
+          </div>
+        )}
+
+        <div className="overflow-x-auto">
+          <div className="inline-flex gap-1">
           {/* Day labels */}
           <div className="flex flex-col gap-[3px] mr-1 text-xs" style={{ color: "hsl(var(--foreground))" }}>
             {dayLabels.map((day, i) => (
@@ -147,7 +208,8 @@ export function ActivityHeatmap({ startDate, endDate }: ActivityHeatmapProps) {
                   return (
                     <div
                       key={dayOfWeek}
-                      title={`${new Date(cell.date).toLocaleDateString("de-DE")}: ${cell.count} beers`}
+                      onMouseEnter={(e) => handleMouseEnter(e, cell.date, cell.count)}
+                      onMouseLeave={handleMouseLeave}
                       style={{
                         width: cellSize,
                         height: cellSize,
@@ -160,24 +222,25 @@ export function ActivityHeatmap({ startDate, endDate }: ActivityHeatmapProps) {
                 })}
               </div>
             ))}
+            </div>
           </div>
-        </div>
 
-        {/* Legend */}
-        <div className="flex items-center gap-2 mt-4 text-xs" style={{ color: "hsl(var(--foreground))" }}>
-          <span>Less</span>
-          {colors.heatmap.map((color, i) => (
-            <div
-              key={i}
-              style={{
-                width: cellSize,
-                height: cellSize,
-                backgroundColor: color,
-                borderRadius: 2,
-              }}
-            />
-          ))}
-          <span>More</span>
+          {/* Legend */}
+          <div className="flex items-center gap-2 mt-4 text-xs" style={{ color: "hsl(var(--foreground))" }}>
+            <span>Less</span>
+            {colors.heatmap.map((color, i) => (
+              <div
+                key={i}
+                style={{
+                  width: cellSize,
+                  height: cellSize,
+                  backgroundColor: color,
+                  borderRadius: 2,
+                }}
+              />
+            ))}
+            <span>More</span>
+          </div>
         </div>
       </div>
     </ChartContainer>
