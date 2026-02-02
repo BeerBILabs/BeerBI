@@ -49,7 +49,7 @@ export default function RankingsLayout({ children }: RankingsLayoutProps) {
           Rankings
         </h1>
         <RankingsNav activeTab={activeTab} activeYear={activeYear} />
-        <div className="mt-6">{children}</div>
+        <div className="rounded-2xl" style={{ backgroundColor: "hsl(var(--primary))" }}>{children}</div>
       </div>
     </main>
   );

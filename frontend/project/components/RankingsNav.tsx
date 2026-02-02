@@ -75,7 +75,7 @@ export function RankingsNav({ activeTab, activeYear }: RankingsNavProps) {
     activeTab === "all" ? "all" : parseInt(activeTab.slice(1), 10);
 
   return (
-    <div className="mb-6">
+    <div>
       <QuarterShortcuts
         currentQuarter={currentQuarter}
         lastQuarter={lastQuarter}
@@ -97,7 +97,7 @@ export function RankingsNav({ activeTab, activeYear }: RankingsNavProps) {
                 href={tab.href}
                 role="tab"
                 aria-selected={isActive}
-                className="px-4 py-2 rounded-t-md text-sm font-medium transition-colors"
+                className="px-4 py-4 rounded-t-md text-sm font-medium transition-colors text-center"
                 style={{
                   backgroundColor: isActive
                     ? "hsl(var(--primary))"
@@ -108,6 +108,7 @@ export function RankingsNav({ activeTab, activeYear }: RankingsNavProps) {
                   borderBottom: isActive
                     ? "2px solid hsl(var(--primary))"
                     : "2px solid transparent",
+                  minWidth: "4rem",
                 }}
               >
                 {tab.label}

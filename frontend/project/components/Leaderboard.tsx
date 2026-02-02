@@ -463,7 +463,7 @@ export function Leaderboard({
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 p-2">
       <LeaderboardColumn
         title="Givers"
         users={givers}

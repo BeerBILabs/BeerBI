@@ -127,10 +127,11 @@ export default function UsersPage(): ReactElement {
       <div className="flex justify-center gap-4 mt-8">
         <Link
           href="/analytics"
-          className="px-4 py-2 rounded-md text-sm font-semibold transition-colors"
+          className="px-4 py-2 rounded-md text-sm font-semibold transition-colors border"
           style={{
             backgroundColor: 'hsl(var(--primary))',
             color: 'hsl(var(--primary-foreground))',
+            borderColor: 'hsl(var(--border))',
           }}
         >
           View Analytics
