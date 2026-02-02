@@ -14,9 +14,6 @@ services:
     environment:
       - PORT=8080
       - DB_PATH=/data/bot.db
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
     networks:
       - beerbot
 
