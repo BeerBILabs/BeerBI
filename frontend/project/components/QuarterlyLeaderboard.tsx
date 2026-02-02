@@ -277,6 +277,10 @@ export function QuarterlyLeaderboard({
         if (year !== null && quarter !== null) {
           const { start, end } = getQuarterDates(year, quarter);
           dateParams = `&start=${start}&end=${end}`;
+        } else {
+          // All-time view: use wide date range (backend requires date params)
+          const today = new Date().toISOString().split("T")[0];
+          dateParams = `&start=2020-01-01&end=${today}`;
         }
 
         // Fetch stats for current period
