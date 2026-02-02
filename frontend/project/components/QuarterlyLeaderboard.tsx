@@ -347,12 +347,12 @@ export function QuarterlyLeaderboard({
           if (cancelled) return;
 
           // Build rank maps (1-indexed)
-          prevGiverStats.forEach((u, i) => {
-            prevGivers[u.userId] = i + 1;
-          });
-          prevRecipientStats.forEach((u, i) => {
-            prevRecipients[u.userId] = i + 1;
-          });
+          prevGivers = Object.fromEntries(
+            prevGiverStats.map((u, i) => [u.userId, i + 1])
+          );
+          prevRecipients = Object.fromEntries(
+            prevRecipientStats.map((u, i) => [u.userId, i + 1])
+          );
         }
 
         if (cancelled || !mounted.current) return;

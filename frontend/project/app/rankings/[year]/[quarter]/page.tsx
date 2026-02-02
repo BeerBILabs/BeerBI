@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation';
 import type { Metadata } from 'next';
 import { isValidQuarter, formatQuarterLabel } from '../../../../lib/quarters';
+import { QuarterlyLeaderboard } from '@/components/QuarterlyLeaderboard';
 
 interface PageProps {
   params: Promise<{ year: string; quarter: string }>;
@@ -43,17 +44,5 @@ export default async function QuarterlyRankingsPage({ params }: PageProps) {
     notFound();
   }
 
-  return (
-    <div>
-      <h1
-        className="text-2xl font-bold mb-4"
-        style={{ color: 'hsl(var(--primary))' }}
-      >
-        {formatQuarterLabel(quarterNum)} {year} Rankings
-      </h1>
-      <p className="text-muted-foreground">
-        Quarterly leaderboard coming soon...
-      </p>
-    </div>
-  );
+  return <QuarterlyLeaderboard year={yearNum} quarter={quarterNum} showRankChange={true} />;
 }

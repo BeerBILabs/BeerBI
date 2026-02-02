@@ -1,21 +1,10 @@
 import type { Metadata } from 'next';
+import { QuarterlyLeaderboard } from '@/components/QuarterlyLeaderboard';
 
 export const metadata: Metadata = {
   title: 'All Time Rankings | BeerBot',
 };
 
 export default function AllTimeRankingsPage() {
-  return (
-    <div>
-      <h1
-        className="text-2xl font-bold mb-4"
-        style={{ color: 'hsl(var(--primary))' }}
-      >
-        All Time Rankings
-      </h1>
-      <p className="text-muted-foreground">
-        All-time leaderboard coming soon...
-      </p>
-    </div>
-  );
+  return <QuarterlyLeaderboard year={null} quarter={null} showRankChange={false} />;
 }

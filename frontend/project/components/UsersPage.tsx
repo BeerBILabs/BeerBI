@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import type { ReactElement } from 'react'
+import Link from 'next/link'
 import UsersList from './UsersList'
 import DateRangePicker from './DateRangePicker'
 
@@ -142,6 +143,18 @@ export default function UsersPage(): ReactElement {
             end={range.end}
             onChange={(s, e) => setRange({ start: s, end: e })}
           />
+        </div>
+        <div className="flex justify-center mt-4">
+          <Link
+            href="/rankings"
+            className="px-4 py-2 rounded-md text-sm font-semibold transition-colors"
+            style={{
+              backgroundColor: 'hsl(var(--primary))',
+              color: 'hsl(var(--primary-foreground))',
+            }}
+          >
+            Explore Quarterly Rankings
+          </Link>
         </div>
       </div>
 

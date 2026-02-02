@@ -58,6 +58,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           <div className="max-w-5xl mx-auto flex items-center gap-4 px-8 py-4">
             <Logo className="h-10 w-auto" />
             <span className="ml-auto text-base font-medium tracking-tight"><Link href="/">Stats &amp; Leaderboard</Link></span>
+            <Link href="/rankings" className="text-base font-medium tracking-tight hover:opacity-80 transition-opacity">Rankings</Link>
             <ThemeToggle />
           </div>
         </header>
