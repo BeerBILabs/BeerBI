@@ -44,6 +44,7 @@ logs/
 **/node_modules/
 **/dist/
 **/build/
+**/tsconfig.tsbuildinfo
 
 # Misc
 coverage.out
