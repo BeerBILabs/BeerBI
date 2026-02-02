@@ -69,7 +69,7 @@ Plans:
 **Plans**: 3 plans
 
 Plans:
-- [ ] 03-01-PLAN.md - Route foundation (utilities + URL structure)
+- [x] 03-01-PLAN.md - Route foundation (utilities + URL structure)
 - [ ] 03-02-PLAN.md - Navigation components (tabs, year selector, shortcuts)
 - [ ] 03-03-PLAN.md - Leaderboard display with rank indicators + entry points
 
@@ -82,4 +82,4 @@ Phases execute in numeric order: 1 -> 2 -> 3
 |-------|----------------|--------|-----------|
 | 1. Dependency Modernization | 3/3 | Complete | 2026-02-01 |
 | 2. Beer-Branded Theming | 3/3 | Complete | 2026-02-02 |
-| 3. Quarterly Rankings | 0/3 | Ready | - |
+| 3. Quarterly Rankings | 1/3 | In Progress | - |
