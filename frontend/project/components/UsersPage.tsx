@@ -7,12 +7,20 @@ import DateRangePicker from './DateRangePicker'
 
 type DateRange = { start: string; end: string }
 
+// Format date as YYYY-MM-DD in local timezone (avoids UTC conversion issues)
+function formatLocalDate(d: Date): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 const quickRanges: Array<{ label: string; get: () => DateRange }> = [
   {
     label: 'Today',
     get: () => {
       const d = new Date();
-      const s = d.toISOString().slice(0, 10);
+      const s = formatLocalDate(d);
       return { start: s, end: s };
     }
   },
@@ -21,7 +29,7 @@ const quickRanges: Array<{ label: string; get: () => DateRange }> = [
     get: () => {
       const d = new Date();
       d.setDate(d.getDate() - 1);
-      const s = d.toISOString().slice(0, 10);
+      const s = formatLocalDate(d);
       return { start: s, end: s };
     }
   },
@@ -29,9 +37,9 @@ const quickRanges: Array<{ label: string; get: () => DateRange }> = [
     label: 'Last Week',
     get: () => {
       const d = new Date();
-      const end = d.toISOString().slice(0, 10);
+      const end = formatLocalDate(d);
       d.setDate(d.getDate() - 6);
-      const start = d.toISOString().slice(0, 10);
+      const start = formatLocalDate(d);
       return { start, end };
     }
   },
@@ -39,9 +47,9 @@ const quickRanges: Array<{ label: string; get: () => DateRange }> = [
     label: 'Last Month',
     get: () => {
       const d = new Date();
-      const end = d.toISOString().slice(0, 10);
+      const end = formatLocalDate(d);
       d.setMonth(d.getMonth() - 1);
-      const start = d.toISOString().slice(0, 10);
+      const start = formatLocalDate(d);
       return { start, end };
     }
   },
@@ -49,9 +57,9 @@ const quickRanges: Array<{ label: string; get: () => DateRange }> = [
     label: 'Last 3 Months',
     get: () => {
       const d = new Date();
-      const end = d.toISOString().slice(0, 10);
+      const end = formatLocalDate(d);
       d.setMonth(d.getMonth() - 3);
-      const start = d.toISOString().slice(0, 10);
+      const start = formatLocalDate(d);
       return { start, end };
     }
   },
@@ -59,8 +67,8 @@ const quickRanges: Array<{ label: string; get: () => DateRange }> = [
     label: 'This Year',
     get: () => {
       const now = new Date();
-      const start = new Date(now.getFullYear(), 0, 1).toISOString().slice(0, 10);
-      const end = now.toISOString().slice(0, 10);
+      const start = formatLocalDate(new Date(now.getFullYear(), 0, 1));
+      const end = formatLocalDate(now);
       return { start, end };
     }
   },
@@ -68,8 +76,8 @@ const quickRanges: Array<{ label: string; get: () => DateRange }> = [
     label: 'Last Year',
     get: () => {
       const now = new Date();
-      const start = new Date(now.getFullYear() - 1, 0, 1).toISOString().slice(0, 10);
-      const end = new Date(now.getFullYear() - 1, 11, 31).toISOString().slice(0, 10);
+      const start = formatLocalDate(new Date(now.getFullYear() - 1, 0, 1));
+      const end = formatLocalDate(new Date(now.getFullYear() - 1, 11, 31));
       return { start, end };
     }
   }
@@ -80,8 +88,8 @@ export default function UsersPage(): ReactElement {
   const now = new Date()
   const yearStart = new Date(now.getFullYear(), 0, 1)
   const [range, setRange] = useState<DateRange>({
-    start: yearStart.toISOString().slice(0, 10),
-    end: now.toISOString().slice(0, 10)
+    start: formatLocalDate(yearStart),
+    end: formatLocalDate(now)
   })
   const [givers, setGivers] = useState<string[]>([])
   const [recipients, setRecipients] = useState<string[]>([])
