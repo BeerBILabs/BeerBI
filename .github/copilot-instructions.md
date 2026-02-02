@@ -1,78 +1,110 @@
-<!-- Short, actionable Copilot instructions for the BeerBI monorepo -->
-# Copilot / AI Assistant Notes — BeerBI
+# AI Assistant Instructions — BeerBot
 
-Purpose
--------
-Provide immediate, practical context so an AI coding assistant can be productive in this monorepo (quick setup, important files, conventions, and common debugging patterns).
+## Overview
 
-Big picture
------------
-- Monorepo with two main components:
-  - `backend/` — Go Slack bot service (Socket Mode) that records "beer" events into a SQLite DB. Key folder: `backend/bot/`.
-  - `frontend/` — Next.js (App Router) dashboard in `frontend/project/`, built with Bun/Node and Tailwind.
-- Persistent data: SQLite file used by the bot (default path: `bot/data/data/bot.db`).
-- Communication: Frontend calls backend REST APIs; backend listens to Slack via Socket Mode and writes to SQLite.
+Monorepo for BeerBot — a Slack bot that tracks team appreciation through virtual beer giving.
 
-Quick dev commands (examples)
------------------------------
-- Start backend (Docker dev variant, source-mounted):
-  - `cd bot && docker-compose -f docker-compose.dev.yml up --build`
-- Start backend from source (host Go):
-  - `cd bot && go run . -addr=:8080 -db=/tmp/beerbot.db`
-- Backend tests:
-  - `cd bot && go test ./...`
-- Start frontend (recommended, inside `frontend/project`):
-  - `cd frontend/project && bun install && bun run dev` (or `npm install && npm run dev`)
-- Run full stack via root docker compose (images):
-  - `docker compose up -d`
+| Component | Path | Tech Stack |
+|-----------|------|------------|
+| Backend | `backend/bot/` | Go, SQLite, Slack Socket Mode |
+| Frontend | `frontend/project/` | Next.js (App Router), React, Tailwind, Bun |
 
-Key files to inspect first
-------------------------
-- `backend/bot/main.go` — Slack event entry points and HTTP server initialization.
-- `backend/bot/store.go` — DB migrations, queries, and dedupe logic (look for `processed_events` and `INSERT OR IGNORE`).
-- `backend/bot/store_test.go`, `backend/bot/*_test.go` — existing unit tests and examples of expected behavior.
-- `frontend/project/app/api/proxy/[...path]/route.ts` — client proxy to backend; shows how frontend injects `NEXT_PUBLIC_API_TOKEN`.
-- Compose files: `bot/docker-compose*.yml`, `frontend/docker-compose*.yml`, and root `docker-compose.yml` for multi-service examples.
+## Quick Commands (using Just)
 
-Project-specific conventions & important patterns
------------------------------------------------
-- Event deduplication is essential: backend uses a `processed_events` table and performs `INSERT OR IGNORE` to avoid duplicate processing of Slack events. When changing event handling, preserve atomic marking-before-processing semantics.
-- Slack event filtering: code filters on `ev.SubType`, `ev.BotID`, and a configured `CHANNEL`. When modifying event parsing, check `main.go` for existing filters to avoid double-counting.
-- DB migrations: `store.go` performs migrations on startup. Changes to schema should be accompanied by migration logic and tests.
-- Emoji detection / mention parsing is implemented in the backend; adding support for additional emoji or formats requires touching the detection helpers and tests.
+All commands run from the repo root. Install [just](https://github.com/casey/just) first.
 
-Integration points & external dependencies
-----------------------------------------
-- Slack Socket Mode: requires `BOT_TOKEN` and `APP_TOKEN`. App-level token must have `connections:write`.
-- REST API protected by `API_TOKEN` (Bearer). Frontend uses `NEXT_PUBLIC_API_TOKEN` to proxy requests.
-- Data is stored in SQLite — path is configured via env (see `DB_PATH`/`DB_PATH`-like env in `backend/README.md`). Use `bot/data/data/bot.db` in dev compose.
+```bash
+just              # List all available commands
+just dev          # Start dev environment (hot reload)
+just dev-logs     # View all logs (tailing!)
+just dev-down     # Stop dev environment
+just test         # Run tests
+just clean        # Remove containers and volumes
+```
 
-What to check when changing event handling
------------------------------------------
-1. Confirm Slack App scopes and enabled events (see `backend/README.md` and `bot/docker-compose.override.yml` examples).
-2. Ensure new event paths mark the event as processed BEFORE doing side-effects (use `processed_events` and an atomic `INSERT OR IGNORE`).
-3. Add unit tests in `backend/bot/*_test.go` that simulate duplicate deliveries and assert only one DB row is created.
+**Other useful commands:**
+- `just dev-logs-backend` / `just dev-logs-frontend` — component-specific logs
+- `just shell-backend` / `just shell-frontend` — shell into containers
+- `just prod` — start production environment
+- `just status` — show running services
 
-Examples (use these exact files/commands)
----------------------------------------
-- Inspect dedupe code: `backend/bot/store.go`
-- Run backend tests in a container (if host lacks Go):
-  - `docker run --rm -v $(pwd)/bot:/src -w /src golang:1.23-alpine sh -c "apk add --no-cache git build-base && go test ./..."`
-- Reset local DB and restart bot (safe sequence):
-  - `mv bot/data/data/bot.db bot/data/data/bot.db.bak`
-  - `cd bot && docker-compose -f docker-compose.yml up -d --build`
+## Key Files
 
-Notes for AI agents
--------------------
-- Prefer small, focused PRs: modify event handling in one change, add tests, and update migrations if required.
-- Preserve existing behavior where tests expect it — run `cd bot && go test ./...` before proposing behavior changes.
-- When suggesting fixes for duplicate processing, point to `processed_events`/`store.go` and `main.go` filters rather than broad strokes.
+**Backend (`backend/bot/`):**
+- `main.go` — Entry point, HTTP server, Slack event routing
+- `store.go` — SQLite migrations, queries, `user_cache` table, deduplication via `processed_events`
+- `events.go` — Slack event processing, beer detection, mention parsing
+- `handlers.go` — REST API handlers (`/api/givers`, `/api/recipients`, `/api/user`, etc.)
+- `middleware.go` — Auth middleware (Bearer token validation)
 
-If something is unclear
------------------------
-- Ask which component to focus on (backend event logic vs frontend UI). Provide the file path and a short reproduction (commands to run). I'll refine the instructions.
+**Frontend (`frontend/project/`):**
+- `app/api/proxy/[...path]/route.ts` — Proxy to backend, injects `API_TOKEN`
+- `components/UsersList.tsx` — User display with localStorage caching
+- `components/UsersPage.tsx` — Main leaderboard page
+- `app/globals.css` — Theme variables and styles
 
-References
-----------
-- `backend/copilot-instructions.md` — component-specific, German-language guidance (contains debug recipes and DB maintenance commands).
-- `backend/README.md`, `frontend/README.md`, root `README.md` — setup, env vars, and architecture notes.
+**Config:**
+- `compose.dev.yaml` — Development Docker Compose
+- `compose.yaml` — Production Docker Compose
+- `.env` — Environment variables (Slack tokens, etc.)
+
+## Environment Variables
+
+**Backend (via `.env`):**
+- `BOT_TOKEN` — Slack Bot User OAuth Token
+- `APP_TOKEN` — Slack App-Level Token (needs `connections:write`)
+- `API_TOKEN` — Bearer token for REST API auth
+- `DB_PATH` — SQLite database path (default: `/data/bot.db`)
+- `PORT` — HTTP server port (default: `8080`)
+
+**Frontend (via compose):**
+- `NEXT_PUBLIC_BACKEND_BASE` — Backend URL (e.g., `http://backend-dev:8080`)
+- `API_TOKEN` — Token for backend API calls (server-side only, no `NEXT_PUBLIC_` prefix)
+
+## Important Patterns
+
+### Event Deduplication
+Backend uses `processed_events` table with `INSERT OR IGNORE`. Always mark events as processed BEFORE side-effects:
+```go
+ok, err := store.TryMarkEventProcessed(eventID, ts)
+if !ok { return } // Already processed
+// Now safe to process
+```
+
+### User Caching
+- **Backend:** `user_cache` table stores Slack user ID → name/avatar mapping
+- **Frontend:** localStorage cache with 7-day TTL
+- Purpose: Show names for deactivated Slack users
+
+### Database Migrations
+`store.go` runs migrations on startup. Schema changes need migration logic in `migrate()`.
+
+## Testing
+
+```bash
+just test                    # Run all tests via Docker
+cd backend/bot && go test ./...  # Run backend tests locally
+```
+
+## Debugging
+
+1. Check logs: `just dev-logs`
+2. Backend shell: `just shell-backend`
+3. Frontend shell: `just shell-frontend`
+4. Reset DB: `rm backend/bot/data/bot.db && just dev-restart`
+
+## Slack Setup
+
+1. Create app at https://api.slack.com/apps
+2. Enable Socket Mode
+3. Bot Token Scopes: `channels:history`, `groups:history`, `im:history`, `mpim:history`, `users:read`, `chat:write`
+4. App-Level Token: `connections:write` scope
+5. Invite bot to channels to track
+
+## Guidelines for AI Assistants
+
+- Run `just test` before proposing behavior changes
+- Preserve deduplication semantics when modifying event handling
+- Add tests for new functionality in `backend/bot/*_test.go`
+- Frontend uses HSL CSS variables for theming — maintain consistency
+- Keep PRs focused: one feature/fix per change
