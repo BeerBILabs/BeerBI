@@ -14,7 +14,7 @@ Decimal phases appear between their surrounding integers in numeric order.
 
 - [x] **Phase 1: Dependency Modernization** - Update stack to latest stable versions
 - [x] **Phase 2: Beer-Branded Theming** - Add light/dark mode with branded color palette
-- [ ] **Phase 3: Quarterly Rankings** - Enable quarter-by-quarter leaderboard navigation
+- [x] **Phase 3: Quarterly Rankings** - Enable quarter-by-quarter leaderboard navigation
 
 ## Phase Details
 
@@ -70,8 +70,8 @@ Plans:
 
 Plans:
 - [x] 03-01-PLAN.md - Route foundation (utilities + URL structure)
-- [ ] 03-02-PLAN.md - Navigation components (tabs, year selector, shortcuts)
-- [ ] 03-03-PLAN.md - Leaderboard display with rank indicators + entry points
+- [x] 03-02-PLAN.md - Navigation components (tabs, year selector, shortcuts)
+- [x] 03-03-PLAN.md - Leaderboard display with rank indicators + entry points
 
 ## Progress
 
@@ -82,4 +82,4 @@ Phases execute in numeric order: 1 -> 2 -> 3
 |-------|----------------|--------|-----------|
 | 1. Dependency Modernization | 3/3 | Complete | 2026-02-01 |
 | 2. Beer-Branded Theming | 3/3 | Complete | 2026-02-02 |
-| 3. Quarterly Rankings | 1/3 | In Progress | - |
+| 3. Quarterly Rankings | 3/3 | Complete | 2026-02-02 |

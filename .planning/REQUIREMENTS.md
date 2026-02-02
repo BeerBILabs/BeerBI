@@ -26,13 +26,13 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Quarterly Rankings
 
-- [ ] **QRANK-01**: Quarterly ranking pages accessible via navigation (Q1-Q4)
-- [ ] **QRANK-02**: Quarterly leaderboard displays givers with counts
-- [ ] **QRANK-03**: Quarterly leaderboard displays recipients with counts
-- [ ] **QRANK-04**: Year selector allows viewing historical quarters
-- [ ] **QRANK-05**: URL reflects current quarter selection (shareable links)
-- [ ] **QRANK-06**: "Current Quarter" shortcut available
-- [ ] **QRANK-07**: "Last Quarter" shortcut available
+- [x] **QRANK-01**: Quarterly ranking pages accessible via navigation (Q1-Q4)
+- [x] **QRANK-02**: Quarterly leaderboard displays givers with counts
+- [x] **QRANK-03**: Quarterly leaderboard displays recipients with counts
+- [x] **QRANK-04**: Year selector allows viewing historical quarters
+- [x] **QRANK-05**: URL reflects current quarter selection (shareable links)
+- [x] **QRANK-06**: "Current Quarter" shortcut available
+- [x] **QRANK-07**: "Last Quarter" shortcut available
 
 ## Future Requirements
 
@@ -77,13 +77,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | THEME-05 | Phase 2 | Complete |
 | THEME-06 | Phase 2 | Complete |
 | THEME-07 | Phase 2 | Complete |
-| QRANK-01 | Phase 3 | Pending |
-| QRANK-02 | Phase 3 | Pending |
-| QRANK-03 | Phase 3 | Pending |
-| QRANK-04 | Phase 3 | Pending |
-| QRANK-05 | Phase 3 | Pending |
-| QRANK-06 | Phase 3 | Pending |
-| QRANK-07 | Phase 3 | Pending |
+| QRANK-01 | Phase 3 | Complete |
+| QRANK-02 | Phase 3 | Complete |
+| QRANK-03 | Phase 3 | Complete |
+| QRANK-04 | Phase 3 | Complete |
+| QRANK-05 | Phase 3 | Complete |
+| QRANK-06 | Phase 3 | Complete |
+| QRANK-07 | Phase 3 | Complete |
 
 **Coverage:**
 - v1 requirements: 18 total
@@ -92,4 +92,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-01-31*
-*Last updated: 2026-02-02 after Phase 2 completion*
+*Last updated: 2026-02-02 after Phase 3 completion*
