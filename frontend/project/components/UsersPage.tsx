@@ -78,10 +78,10 @@ export default function UsersPage(): ReactElement {
   return (
     <section>
       <h1
-        className="text-3xl font-extrabold mb-2 tracking-tight flex items-center gap-2"
+        className="text-3xl font-extrabold mb-2 tracking-tight"
         style={{ color: 'hsl(var(--primary))' }}
       >
-        <span>🍺</span> BeerBot Leaderboard
+        BeerBot Leaderboard
       </h1>
       <p className="mb-6 text-base" style={{ color: 'hsl(var(--muted-foreground))' }}>
         See who's giving and receiving the most{' '}
@@ -124,13 +124,24 @@ export default function UsersPage(): ReactElement {
         />
       </div>
 
-      <div className="flex justify-center mt-8">
+      <div className="flex justify-center gap-4 mt-8">
         <Link
-          href="/rankings"
+          href="/analytics"
           className="px-4 py-2 rounded-md text-sm font-semibold transition-colors"
           style={{
             backgroundColor: 'hsl(var(--primary))',
             color: 'hsl(var(--primary-foreground))',
+          }}
+        >
+          View Analytics
+        </Link>
+        <Link
+          href="/rankings"
+          className="px-4 py-2 rounded-md text-sm font-semibold transition-colors border"
+          style={{
+            backgroundColor: 'hsl(var(--secondary))',
+            color: 'hsl(var(--secondary-foreground))',
+            borderColor: 'hsl(var(--border))',
           }}
         >
           Explore Quarterly Rankings

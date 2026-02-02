@@ -37,18 +37,20 @@ export default function RankingsLayout({ children }: RankingsLayoutProps) {
   }
 
   return (
-    <div
-      className="w-full max-w-4xl mx-auto px-4 py-6"
-      style={{ backgroundColor: "hsl(var(--background))" }}
-    >
-      <h1
-        className="text-2xl font-bold mb-6"
-        style={{ color: "hsl(var(--primary))" }}
+    <main className="flex-1 flex flex-col items-center px-2">
+      <div
+        className="w-full max-w-4xl mx-auto px-4 py-6 mt-10 mb-10"
+        style={{ backgroundColor: "hsl(var(--background))" }}
       >
-        Rankings
-      </h1>
-      <RankingsNav activeTab={activeTab} activeYear={activeYear} />
-      <div className="mt-6">{children}</div>
-    </div>
+        <h1
+          className="text-2xl font-bold mb-6"
+          style={{ color: "hsl(var(--primary))" }}
+        >
+          Rankings
+        </h1>
+        <RankingsNav activeTab={activeTab} activeYear={activeYear} />
+        <div className="mt-6">{children}</div>
+      </div>
+    </main>
   );
 }

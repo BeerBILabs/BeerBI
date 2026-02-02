@@ -48,25 +48,24 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   const theme = cookieStore.get('theme')?.value || 'light'
 
   return (
-    <html lang="en" className={theme === 'dark' ? 'dark' : ''} suppressHydrationWarning>
+    <html lang="en" className={`${theme === 'dark' ? 'dark' : ''} h-full`} suppressHydrationWarning>
       <head>
         <ThemeScript />
       </head>
-      <body className={`${inter.className} min-h-screen surface flex flex-col`}>
+      <body className={`${inter.className} h-full min-h-screen surface flex flex-col`}>
         <ThemeProvider />
         <header className="w-full surface-inverse border-b bordered shadow-sm sticky top-0 z-30">
           <div className="max-w-5xl mx-auto flex items-center gap-4 px-8 py-4">
             <Logo className="h-10 w-auto" />
-            <span className="ml-auto text-base font-medium tracking-tight"><Link href="/">Stats &amp; Leaderboard</Link></span>
+            <span className="ml-auto text-base font-medium tracking-tight"><Link href="/">Leaderboard</Link></span>
+            <Link href="/analytics" className="text-base font-medium tracking-tight hover:opacity-80 transition-opacity">Analytics</Link>
             <Link href="/rankings" className="text-base font-medium tracking-tight hover:opacity-80 transition-opacity">Rankings</Link>
             <ThemeToggle />
           </div>
         </header>
-        <main className="flex-1 flex flex-col items-center justify-center px-2">
-          <div className="w-full max-w-3xl card rounded-2xl shadow-lg p-8 mt-10 mb-10 border bordered">
-            {children}
-          </div>
-        </main>
+        <div className="flex-1 surface">
+          {children}
+        </div>
         <footer className="w-full text-center text-xs py-6 border-t bordered surface-inverse">
           <span>Made with <span className="text-[#d4a84b] font-bold">&#9829;</span> by BeerBot Team</span>
         </footer>
