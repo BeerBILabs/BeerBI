@@ -43,14 +43,16 @@ Plans:
   1. User can see theme toggle control in UI and click to switch themes
   2. Theme switches immediately between light and dark modes without page reload
   3. User's theme preference persists when closing and reopening browser
-  4. System preference (prefers-color-scheme) automatically applied on first visit
+  4. First visit defaults to light mode (user decision: no system preference detection)
   5. No flash of wrong theme colors appears when page loads
   6. Light mode uses golden/amber beer colors and dark mode uses stout/porter colors
   7. All buttons have consistent styling in both light and dark themes
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] TBD (pending plan-phase)
+- [ ] 02-01-PLAN.md - Beer-themed color palette and CSS transitions
+- [ ] 02-02-PLAN.md - Cookie-based persistence and SSR theme rendering
+- [ ] 02-03-PLAN.md - Toggle enhancement with tooltip and verification
 
 ### Phase 3: Quarterly Rankings
 **Goal**: Users can navigate and view leaderboards for any quarter of any year
@@ -77,5 +79,5 @@ Phases execute in numeric order: 1 → 2 → 3
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Dependency Modernization | 3/3 | Complete | 2026-02-01 |
-| 2. Beer-Branded Theming | 0/TBD | Not started | - |
+| 2. Beer-Branded Theming | 0/3 | Planned | - |
 | 3. Quarterly Rankings | 0/TBD | Not started | - |
