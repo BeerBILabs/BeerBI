@@ -23,20 +23,19 @@ type SlackConnectionManager struct {
 	mu               sync.RWMutex
 	logger           zerolog.Logger
 	stopEventProcess context.CancelFunc
+	oldSocketClient  *socketmode.Client // track old client for cleanup
 }
 
 // NewSlackConnectionManager creates a new connection manager
 func NewSlackConnectionManager(botToken, appToken string, logger zerolog.Logger) *SlackConnectionManager {
 	client := slack.New(botToken, slack.OptionAppLevelToken(appToken))
-	socketClient := socketmode.New(client)
 
 	return &SlackConnectionManager{
-		client:       client,
-		socketClient: socketClient,
-		botToken:     botToken,
-		appToken:     appToken,
-		lastPing:     time.Now(),
-		logger:       logger,
+		client:   client,
+		botToken: botToken,
+		appToken: appToken,
+		lastPing: time.Now(),
+		logger:   logger,
 	}
 }
 
@@ -54,6 +53,7 @@ func (scm *SlackConnectionManager) setConnected(connected bool) {
 	scm.isConnected = connected
 	if connected {
 		scm.lastPing = time.Now()
+		scm.reconnectCount = 0 // Reset only after connection confirmed
 	}
 	scm.mu.Unlock()
 
@@ -129,10 +129,12 @@ func (scm *SlackConnectionManager) StartWithReconnection(ctx context.Context, ev
 				if scm.stopEventProcess != nil {
 					scm.stopEventProcess()
 				}
+				// Keep reference to old socket client for cleanup
+				scm.oldSocketClient = scm.socketClient
 
 				// Create new socket client for this connection attempt
 				scm.socketClient = socketmode.New(scm.client)
-				scm.reconnectCount = 0
+				socketClient := scm.socketClient // local copy for use outside lock
 
 				// Create cancellable context for event processing
 				eventCtx, eventCancel := context.WithCancel(ctx)
@@ -144,7 +146,7 @@ func (scm *SlackConnectionManager) StartWithReconnection(ctx context.Context, ev
 
 				// Run the socket mode client
 				scm.logger.Info().Msg("Starting Slack socket mode client")
-				if err := scm.socketClient.RunContext(ctx); err != nil {
+				if err := socketClient.RunContext(ctx); err != nil {
 					scm.setConnected(false)
 					if ctx.Err() != nil {
 						scm.logger.Info().Err(err).Msg("Socket mode client stopped due to context cancellation")
