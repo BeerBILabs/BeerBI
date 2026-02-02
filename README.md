@@ -10,10 +10,10 @@ When someone mentions a colleague with a beer emoji in Slack, BeerBot records it
 
 This monorepo contains:
 
-| Component | Description | Tech Stack |
-|-----------|-------------|------------|
-| [backend/](./backend/) | Slack bot service with REST API | Go, SQLite, Slack Socket Mode |
-| [frontend/](./frontend/) | Analytics dashboard | Next.js, React, Tailwind CSS, Bun |
+| Component                | Description                     | Tech Stack                        |
+|--------------------------|---------------------------------|-----------------------------------|
+| [backend/](./backend/)   | Slack bot service with REST API | Go, SQLite, Slack Socket Mode     |
+| [frontend/](./frontend/) | Analytics dashboard             | Next.js, React, Tailwind CSS, Bun |
 
 ## Development Requirements
 
