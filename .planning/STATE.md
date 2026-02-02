@@ -10,28 +10,28 @@ See: .planning/PROJECT.md (updated 2026-01-30)
 ## Current Position
 
 Phase: 2 of 3 (Beer-Branded Theming)
-Plan: 1 of TBD in current phase
+Plan: 2 of 3 in current phase
 Status: In progress
-Last activity: 2026-02-02 — Completed 02-01-PLAN.md (beer-themed CSS variables)
+Last activity: 2026-02-02 — Completed 02-02-PLAN.md (cookie-based theme persistence)
 
 Progress: [███░░░░░░░] 33% (1/3 phases complete)
 
 ## Performance Metrics
 
 **Velocity:**
-- Total plans completed: 4
+- Total plans completed: 5
 - Average duration: 2 min
-- Total execution time: 0.1 hours
+- Total execution time: 0.2 hours
 
 **By Phase:**
 
 | Phase | Plans | Total | Avg/Plan |
 |-------|-------|-------|----------|
 | 01-dependency-modernization | 3 | 5 min | ~2 min |
-| 02-beer-branded-theming | 1 | 2 min | 2 min |
+| 02-beer-branded-theming | 2 | 5 min | ~2.5 min |
 
 **Recent Trend:**
-- Last 5 plans: 01-01 (1 min), 01-02 (1 min), 01-03 (2 min), 02-01 (2 min)
+- Last 5 plans: 01-02 (1 min), 01-03 (2 min), 02-01 (2 min), 02-02 (3 min)
 - Trend: Stable
 
 *Updated after each plan completion*
@@ -51,6 +51,9 @@ Recent decisions affecting current work:
 - 02-01: HSL format without hsl() wrapper in CSS variables (Tailwind convention)
 - 02-01: Transition only color/background-color/border-color (not "all") for performance
 - 02-01: Golden amber (hsl 38) as primary accent across both modes
+- 02-02: Light mode default on first visit (no system preference check)
+- 02-02: Dual cookie setting pattern (Server Action + client-side for immediate reads)
+- 02-02: ThemeScript blocking script for defense-in-depth FOUC prevention
 
 ### Pending Todos
 
@@ -62,6 +65,6 @@ None.
 
 ## Session Continuity
 
-Last session: 2026-02-02T07:31:37Z
-Stopped at: Completed 02-01-PLAN.md (beer-themed CSS variables)
+Last session: 2026-02-02T08:36:00Z
+Stopped at: Completed 02-02-PLAN.md (cookie-based theme persistence)
 Resume file: None
