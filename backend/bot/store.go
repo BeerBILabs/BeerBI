@@ -368,3 +368,279 @@ func (s *SQLiteStore) SetCachedUser(userID, realName, profileImage string) error
 		userID, realName, profileImage, time.Now().UTC().Format(time.RFC3339))
 	return err
 }
+
+// ============================================================================
+// Stats Query Methods for Analytics/BI Features
+// ============================================================================
+
+// TimelinePoint represents a single data point in a timeline chart
+type TimelinePoint struct {
+	Date     string `json:"date"`
+	Given    int    `json:"given"`
+	Received int    `json:"received"`
+}
+
+// GetTimelineStats returns aggregated beer counts grouped by date within a range.
+// Granularity can be "day", "week", or "month".
+func (s *SQLiteStore) GetTimelineStats(start, end time.Time, granularity string) ([]TimelinePoint, error) {
+	startStr := start.Format("2006-01-02")
+	endStr := end.Format("2006-01-02")
+
+	fmt.Printf("[STORE] GetTimelineStats: start=%s end=%s granularity=%s\n", startStr, endStr, granularity)
+
+	var dateExpr string
+	switch granularity {
+	case "week":
+		// Group by ISO week (Monday start) - use strftime %W for week number
+		dateExpr = `strftime('%Y-W%W', substr(ts_rfc, 1, 10))`
+	case "month":
+		dateExpr = `strftime('%Y-%m', substr(ts_rfc, 1, 10))`
+	default: // "day"
+		dateExpr = `substr(ts_rfc, 1, 10)`
+	}
+
+	query := fmt.Sprintf(`
+		WITH dates AS (
+			SELECT DISTINCT %s as period FROM beers 
+			WHERE substr(ts_rfc, 1, 10) BETWEEN ? AND ?
+		),
+		given_counts AS (
+			SELECT %s as period, COALESCE(SUM(count), 0) as total
+			FROM beers WHERE substr(ts_rfc, 1, 10) BETWEEN ? AND ?
+			GROUP BY %s
+		),
+		received_counts AS (
+			SELECT %s as period, COALESCE(SUM(count), 0) as total
+			FROM beers WHERE substr(ts_rfc, 1, 10) BETWEEN ? AND ?
+			GROUP BY %s
+		)
+		SELECT d.period, COALESCE(g.total, 0), COALESCE(r.total, 0)
+		FROM dates d
+		LEFT JOIN given_counts g ON d.period = g.period
+		LEFT JOIN received_counts r ON d.period = r.period
+		ORDER BY d.period
+	`, dateExpr, dateExpr, dateExpr, dateExpr, dateExpr)
+
+	fmt.Printf("[STORE] GetTimelineStats query: %s\n", query)
+	rows, err := s.db.Query(query, startStr, endStr, startStr, endStr, startStr, endStr)
+	if err != nil {
+		fmt.Printf("[STORE] GetTimelineStats query error: %v\n", err)
+		return nil, fmt.Errorf("timeline query: %w", err)
+	}
+	defer rows.Close()
+
+	var results []TimelinePoint
+	for rows.Next() {
+		var p TimelinePoint
+		if err := rows.Scan(&p.Date, &p.Given, &p.Received); err != nil {
+			fmt.Printf("[STORE] GetTimelineStats scan error: %v\n", err)
+			return nil, fmt.Errorf("timeline scan: %w", err)
+		}
+		results = append(results, p)
+	}
+	fmt.Printf("[STORE] GetTimelineStats returning %d results\n", len(results))
+	return results, nil
+}
+
+// QuarterlyStats represents stats for a single quarter
+type QuarterlyStats struct {
+	Year    int `json:"year"`
+	Quarter int `json:"quarter"`
+	Count   int `json:"count"`
+}
+
+// GetQuarterlyStats returns beer counts aggregated by quarter for a range of years
+func (s *SQLiteStore) GetQuarterlyStats(startYear, endYear int) ([]QuarterlyStats, error) {
+	fmt.Printf("[STORE] GetQuarterlyStats: startYear=%d endYear=%d\n", startYear, endYear)
+	query := `
+		SELECT 
+			CAST(strftime('%Y', substr(ts_rfc, 1, 10)) AS INTEGER) as year,
+			CASE 
+				WHEN CAST(strftime('%m', substr(ts_rfc, 1, 10)) AS INTEGER) BETWEEN 1 AND 3 THEN 1
+				WHEN CAST(strftime('%m', substr(ts_rfc, 1, 10)) AS INTEGER) BETWEEN 4 AND 6 THEN 2
+				WHEN CAST(strftime('%m', substr(ts_rfc, 1, 10)) AS INTEGER) BETWEEN 7 AND 9 THEN 3
+				ELSE 4
+			END as quarter,
+			COALESCE(SUM(count), 0) as total
+		FROM beers
+		WHERE CAST(strftime('%Y', substr(ts_rfc, 1, 10)) AS INTEGER) BETWEEN ? AND ?
+		GROUP BY year, quarter
+		ORDER BY year, quarter
+	`
+
+	rows, err := s.db.Query(query, startYear, endYear)
+	if err != nil {
+		fmt.Printf("[STORE] GetQuarterlyStats query error: %v\n", err)
+		return nil, fmt.Errorf("quarterly query: %w", err)
+	}
+	defer rows.Close()
+
+	var results []QuarterlyStats
+	for rows.Next() {
+		var q QuarterlyStats
+		if err := rows.Scan(&q.Year, &q.Quarter, &q.Count); err != nil {
+			fmt.Printf("[STORE] GetQuarterlyStats scan error: %v\n", err)
+			return nil, fmt.Errorf("quarterly scan: %w", err)
+		}
+		results = append(results, q)
+	}
+	fmt.Printf("[STORE] GetQuarterlyStats returning %d results\n", len(results))
+	return results, nil
+}
+
+// TopUserStats represents a user with their beer count
+type TopUserStats struct {
+	UserID string `json:"userId"`
+	Count  int    `json:"count"`
+}
+
+// TopUsersResult contains top givers and recipients
+type TopUsersResult struct {
+	Givers     []TopUserStats `json:"givers"`
+	Recipients []TopUserStats `json:"recipients"`
+}
+
+// GetTopUsers returns the top N givers and recipients in a date range
+func (s *SQLiteStore) GetTopUsers(start, end time.Time, limit int) (*TopUsersResult, error) {
+	startStr := start.Format("2006-01-02")
+	endStr := end.Format("2006-01-02")
+
+	fmt.Printf("[STORE] GetTopUsers: start=%s end=%s limit=%d\n", startStr, endStr, limit)
+
+	// Get top givers
+	giversQuery := `
+		SELECT giver_id, COALESCE(SUM(count), 0) as total
+		FROM beers
+		WHERE substr(ts_rfc, 1, 10) BETWEEN ? AND ?
+		GROUP BY giver_id
+		ORDER BY total DESC
+		LIMIT ?
+	`
+	giversRows, err := s.db.Query(giversQuery, startStr, endStr, limit)
+	if err != nil {
+		fmt.Printf("[STORE] GetTopUsers givers query error: %v\n", err)
+		return nil, fmt.Errorf("top givers query: %w", err)
+	}
+	defer giversRows.Close()
+
+	var givers []TopUserStats
+	for giversRows.Next() {
+		var u TopUserStats
+		if err := giversRows.Scan(&u.UserID, &u.Count); err != nil {
+			return nil, fmt.Errorf("top givers scan: %w", err)
+		}
+		givers = append(givers, u)
+	}
+
+	// Get top recipients
+	recipientsQuery := `
+		SELECT recipient_id, COALESCE(SUM(count), 0) as total
+		FROM beers
+		WHERE substr(ts_rfc, 1, 10) BETWEEN ? AND ?
+		GROUP BY recipient_id
+		ORDER BY total DESC
+		LIMIT ?
+	`
+	recipientsRows, err := s.db.Query(recipientsQuery, startStr, endStr, limit)
+	if err != nil {
+		fmt.Printf("[STORE] GetTopUsers recipients query error: %v\n", err)
+		return nil, fmt.Errorf("top recipients query: %w", err)
+	}
+	defer recipientsRows.Close()
+
+	var recipients []TopUserStats
+	for recipientsRows.Next() {
+		var u TopUserStats
+		if err := recipientsRows.Scan(&u.UserID, &u.Count); err != nil {
+			return nil, fmt.Errorf("top recipients scan: %w", err)
+		}
+		recipients = append(recipients, u)
+	}
+
+	fmt.Printf("[STORE] GetTopUsers returning %d givers, %d recipients\n", len(givers), len(recipients))
+	return &TopUsersResult{Givers: givers, Recipients: recipients}, nil
+}
+
+// HeatmapPoint represents a single day's activity for the calendar heatmap
+type HeatmapPoint struct {
+	Date  string `json:"date"`
+	Count int    `json:"count"`
+}
+
+// GetHeatmapStats returns daily beer counts for a calendar heatmap view
+func (s *SQLiteStore) GetHeatmapStats(start, end time.Time) ([]HeatmapPoint, error) {
+	startStr := start.Format("2006-01-02")
+	endStr := end.Format("2006-01-02")
+
+	fmt.Printf("[STORE] GetHeatmapStats: start=%s end=%s\n", startStr, endStr)
+
+	query := `
+		SELECT substr(ts_rfc, 1, 10) as date, COALESCE(SUM(count), 0) as total
+		FROM beers
+		WHERE substr(ts_rfc, 1, 10) BETWEEN ? AND ?
+		GROUP BY date
+		ORDER BY date
+	`
+
+	rows, err := s.db.Query(query, startStr, endStr)
+	if err != nil {
+		fmt.Printf("[STORE] GetHeatmapStats query error: %v\n", err)
+		return nil, fmt.Errorf("heatmap query: %w", err)
+	}
+	defer rows.Close()
+
+	var results []HeatmapPoint
+	for rows.Next() {
+		var p HeatmapPoint
+		if err := rows.Scan(&p.Date, &p.Count); err != nil {
+			fmt.Printf("[STORE] GetHeatmapStats scan error: %v\n", err)
+			return nil, fmt.Errorf("heatmap scan: %w", err)
+		}
+		results = append(results, p)
+	}
+	fmt.Printf("[STORE] GetHeatmapStats returning %d results\n", len(results))
+	return results, nil
+}
+
+// PairStats represents a giver-recipient pair with their total beer count
+type PairStats struct {
+	Giver     string `json:"giver"`
+	Recipient string `json:"recipient"`
+	Count     int    `json:"count"`
+}
+
+// GetPairStats returns the top giver→recipient pairs for network visualization
+func (s *SQLiteStore) GetPairStats(start, end time.Time, limit int) ([]PairStats, error) {
+	startStr := start.Format("2006-01-02")
+	endStr := end.Format("2006-01-02")
+
+	fmt.Printf("[STORE] GetPairStats: start=%s end=%s limit=%d\n", startStr, endStr, limit)
+
+	query := `
+		SELECT giver_id, recipient_id, COALESCE(SUM(count), 0) as total
+		FROM beers
+		WHERE substr(ts_rfc, 1, 10) BETWEEN ? AND ?
+		GROUP BY giver_id, recipient_id
+		ORDER BY total DESC
+		LIMIT ?
+	`
+
+	rows, err := s.db.Query(query, startStr, endStr, limit)
+	if err != nil {
+		fmt.Printf("[STORE] GetPairStats query error: %v\n", err)
+		return nil, fmt.Errorf("pairs query: %w", err)
+	}
+	defer rows.Close()
+
+	var results []PairStats
+	for rows.Next() {
+		var p PairStats
+		if err := rows.Scan(&p.Giver, &p.Recipient, &p.Count); err != nil {
+			fmt.Printf("[STORE] GetPairStats scan error: %v\n", err)
+			return nil, fmt.Errorf("pairs scan: %w", err)
+		}
+		results = append(results, p)
+	}
+	fmt.Printf("[STORE] GetPairStats returning %d results\n", len(results))
+	return results, nil
+}
