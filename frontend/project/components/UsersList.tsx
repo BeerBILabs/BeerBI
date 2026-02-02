@@ -1,6 +1,7 @@
 "use client"
 import React, { useEffect, useState, useRef } from 'react'
 import Image from 'next/image'
+import { usePathname } from 'next/navigation'
 
 type DateRange = { start?: string; end?: string }
 type UsersListProps = {
@@ -60,7 +61,7 @@ export default function UsersList({ title, users, range }: UsersListProps) {
   const [stats, setStats] = useState<Record<string, number>>({})
   const [names, setNames] = useState<Record<string, string>>({})
   const [avatars, setAvatars] = useState<Record<string, string | null>>({})
-  const lastArgsRef = useRef<string | null>(null)
+  const pathname = usePathname()
   const mounted = useRef<boolean>(true)
 
   useEffect(() => {
@@ -70,11 +71,7 @@ export default function UsersList({ title, users, range }: UsersListProps) {
 
   // Fetch stats for each user
   useEffect(() => {
-    const usersKey = JSON.stringify(users || [])
-    const rangeKey = `${range?.start ?? ''}_${range?.end ?? ''}`
-    const argsKey = `${title}|${usersKey}|${rangeKey}`
-    if (lastArgsRef.current === argsKey) return
-    lastArgsRef.current = argsKey
+    setStats({})
 
     let cancelled = false
     const timer = setTimeout(() => {
@@ -131,7 +128,7 @@ export default function UsersList({ title, users, range }: UsersListProps) {
     }, 200)
     return () => { cancelled = true; clearTimeout(timer) }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [users, range.start, range.end, title])
+  }, [users, range.start, range.end, title, pathname])
 
   // Fetch real names and avatars for each user (with localStorage caching)
   useEffect(() => {
