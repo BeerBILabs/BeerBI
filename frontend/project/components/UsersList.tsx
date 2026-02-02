@@ -9,6 +9,53 @@ type UsersListProps = {
   range: DateRange
 }
 
+type CachedUserInfo = {
+  real_name: string
+  profile_image: string | null
+  cached_at: number
+}
+
+const USER_CACHE_KEY = 'beerbot_user_cache'
+const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000 // 7 days
+
+function getUserCache(): Record<string, CachedUserInfo> {
+  if (typeof window === 'undefined') return {}
+  try {
+    const raw = localStorage.getItem(USER_CACHE_KEY)
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
+  }
+}
+
+function setUserCache(cache: Record<string, CachedUserInfo>): void {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(USER_CACHE_KEY, JSON.stringify(cache))
+  } catch {
+    // localStorage might be full or disabled
+  }
+}
+
+function getCachedUser(userId: string): CachedUserInfo | null {
+  const cache = getUserCache()
+  const entry = cache[userId]
+  if (!entry) return null
+  // Check if cache is still valid
+  if (Date.now() - entry.cached_at > CACHE_TTL_MS) return null
+  return entry
+}
+
+function setCachedUser(userId: string, realName: string, profileImage: string | null): void {
+  const cache = getUserCache()
+  cache[userId] = {
+    real_name: realName,
+    profile_image: profileImage,
+    cached_at: Date.now()
+  }
+  setUserCache(cache)
+}
+
 export default function UsersList({ title, users, range }: UsersListProps) {
   const [stats, setStats] = useState<Record<string, number>>({})
   const [names, setNames] = useState<Record<string, string>>({})
@@ -86,32 +133,61 @@ export default function UsersList({ title, users, range }: UsersListProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [users, range.start, range.end, title])
 
-  // Fetch real names and avatars for each user
+  // Fetch real names and avatars for each user (with localStorage caching)
   useEffect(() => {
     let cancelled = false
     async function fetchNamesAvatars() {
-      const namesOut = {}
-      const avatarsOut = {}
+      const namesOut: Record<string, string> = {}
+      const avatarsOut: Record<string, string | null> = {}
       const concurrency = 5
       let idx = 0
       async function worker() {
         while (idx < users.length && !cancelled) {
           const i = idx++
           const u = users[i]
+          
+          // Check cache first
+          const cached = getCachedUser(u)
+          if (cached) {
+            namesOut[u] = cached.real_name
+            avatarsOut[u] = cached.profile_image
+            continue
+          }
+          
           try {
             const resp = await fetch(`/api/proxy/user?user=${encodeURIComponent(u)}`)
             if (!resp.ok) {
-              namesOut[u] = u
-              avatarsOut[u] = null
+              // API failed - try to use expired cache as fallback
+              const expiredCache = getUserCache()[u]
+              if (expiredCache) {
+                namesOut[u] = expiredCache.real_name
+                avatarsOut[u] = expiredCache.profile_image
+              } else {
+                namesOut[u] = u
+                avatarsOut[u] = null
+              }
               continue
             }
             const j = await resp.json()
-            namesOut[u] = j.real_name || u
-            avatarsOut[u] = j.profile_image || null
+            const realName = j.real_name || u
+            const profileImage = j.profile_image || null
+            namesOut[u] = realName
+            avatarsOut[u] = profileImage
+            // Cache successful response
+            if (j.real_name) {
+              setCachedUser(u, realName, profileImage)
+            }
           } catch (err) {
             console.error(err);
-            namesOut[u] = u
-            avatarsOut[u] = null
+            // On error, try expired cache as fallback
+            const expiredCache = getUserCache()[u]
+            if (expiredCache) {
+              namesOut[u] = expiredCache.real_name
+              avatarsOut[u] = expiredCache.profile_image
+            } else {
+              namesOut[u] = u
+              avatarsOut[u] = null
+            }
           }
         }
       }
