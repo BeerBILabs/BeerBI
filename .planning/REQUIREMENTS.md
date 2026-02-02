@@ -16,13 +16,13 @@ Requirements for this milestone. Each maps to roadmap phases.
 
 ### Theming
 
-- [ ] **THEME-01**: Theme toggle control visible in UI
-- [ ] **THEME-02**: Light and dark mode switching works correctly
-- [ ] **THEME-03**: Theme preference persists in localStorage across sessions
-- [ ] **THEME-04**: System preference detected on first visit (respects prefers-color-scheme)
-- [ ] **THEME-05**: No flash of unstyled content on page load (FOUC prevention)
-- [ ] **THEME-06**: Beer-branded color palette applied (golden/amber light, stout/porter dark)
-- [ ] **THEME-07**: All buttons consistently styled across both themes
+- [x] **THEME-01**: Theme toggle control visible in UI
+- [x] **THEME-02**: Light and dark mode switching works correctly
+- [x] **THEME-03**: Theme preference persists in cookies across sessions
+- [x] **THEME-04**: First visit defaults to light mode (user decision: no system preference)
+- [x] **THEME-05**: No flash of unstyled content on page load (FOUC prevention)
+- [x] **THEME-06**: Beer-branded color palette applied (golden/amber light, stout/porter dark)
+- [x] **THEME-07**: All buttons consistently styled across both themes
 
 ### Quarterly Rankings
 
@@ -70,13 +70,13 @@ Which phases cover which requirements. Updated during roadmap creation.
 | DEP-02 | Phase 1 | Complete |
 | DEP-03 | Phase 1 | Complete |
 | DEP-04 | Phase 1 | Complete |
-| THEME-01 | Phase 2 | Pending |
-| THEME-02 | Phase 2 | Pending |
-| THEME-03 | Phase 2 | Pending |
-| THEME-04 | Phase 2 | Pending |
-| THEME-05 | Phase 2 | Pending |
-| THEME-06 | Phase 2 | Pending |
-| THEME-07 | Phase 2 | Pending |
+| THEME-01 | Phase 2 | Complete |
+| THEME-02 | Phase 2 | Complete |
+| THEME-03 | Phase 2 | Complete |
+| THEME-04 | Phase 2 | Complete |
+| THEME-05 | Phase 2 | Complete |
+| THEME-06 | Phase 2 | Complete |
+| THEME-07 | Phase 2 | Complete |
 | QRANK-01 | Phase 3 | Pending |
 | QRANK-02 | Phase 3 | Pending |
 | QRANK-03 | Phase 3 | Pending |
@@ -92,4 +92,4 @@ Which phases cover which requirements. Updated during roadmap creation.
 
 ---
 *Requirements defined: 2026-01-31*
-*Last updated: 2026-02-01 after Phase 1 completion*
+*Last updated: 2026-02-02 after Phase 2 completion*
