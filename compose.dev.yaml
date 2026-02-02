@@ -28,9 +28,9 @@ services:
     ports:
       - "3000:3000"
     environment:
-      HOSTNAME: 0.0.0.0
-      NEXT_PUBLIC_BACKEND_BASE: "http://backend:8080"
-      NEXT_PUBLIC_API_TOKEN: "my-secret-token"
+      - HOSTNAME=0.0.0.0
+      - NEXT_PUBLIC_BACKEND_BASE=http://backend-dev:8080
+      - API_TOKEN=my-secret-token
     volumes:
       - ./frontend/project:/app/beerbot
     depends_on:
