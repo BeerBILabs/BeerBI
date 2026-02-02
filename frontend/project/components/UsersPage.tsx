@@ -98,17 +98,29 @@ export default function UsersPage(): ReactElement {
 
   return (
     <section>
-      <h1 className="text-3xl font-extrabold mb-2 text-indigo-700 tracking-tight flex items-center gap-2">
+      <h1
+        className="text-3xl font-extrabold mb-2 tracking-tight flex items-center gap-2"
+        style={{ color: 'hsl(var(--primary))' }}
+      >
         <span>🍺</span> BeerBot Leaderboard
       </h1>
-      <p className="mb-6 text-gray-500 text-base">See who’s giving and receiving the most <span className="font-semibold text-yellow-500">beers</span>! Select a date range or use a quick filter.</p>
+      <p className="mb-6 text-base" style={{ color: 'hsl(var(--muted-foreground))' }}>
+        See who's giving and receiving the most{' '}
+        <span className="font-semibold" style={{ color: 'hsl(var(--primary))' }}>beers</span>!
+        Select a date range or use a quick filter.
+      </p>
 
       <div className="mb-6 flex flex-col gap-3 items-center">
         <div className="flex flex-wrap gap-2 mb-2 justify-center">
           {quickRanges.map(q => (
             <button
               key={q.label}
-              className="px-3 py-1 rounded bg-indigo-100 hover:bg-indigo-300 text-indigo-900 text-sm font-medium border border-indigo-200 transition-colors duration-150 shadow-sm"
+              className="px-3 py-1 rounded text-sm font-medium border transition-colors duration-150 shadow-sm"
+              style={{
+                backgroundColor: 'hsl(var(--secondary))',
+                color: 'hsl(var(--secondary-foreground))',
+                borderColor: 'hsl(var(--border))',
+              }}
               onClick={() => setRange(q.get())}
               type="button"
             >

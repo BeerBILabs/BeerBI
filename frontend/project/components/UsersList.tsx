@@ -139,20 +139,35 @@ export default function UsersList({ title, users, range }: UsersListProps) {
   const total = sorted.reduce((sum, u) => sum + (typeof u.count === 'number' ? u.count : 0), 0)
 
   return (
-    <div className="bg-gradient-to-br from-yellow-50 to-indigo-50 p-5 rounded-2xl shadow-lg min-h-[400px] border border-indigo-100">
-      <h2 className="text-xl font-bold mb-2 text-indigo-700 flex items-center gap-2">
+    <div
+      className="p-5 rounded-2xl shadow-lg min-h-[400px] border"
+      style={{
+        backgroundColor: 'hsl(var(--card))',
+        color: 'hsl(var(--card-foreground))',
+        borderColor: 'hsl(var(--border))',
+      }}
+    >
+      <h2
+        className="text-xl font-bold mb-2 flex items-center gap-2"
+        style={{ color: 'hsl(var(--primary))' }}
+      >
         {title === 'Givers' ? '🙌' : '🎉'} {title}
       </h2>
-      <div className="mb-3 text-sm text-gray-500">Total <span className="font-bold text-yellow-600">🍺 {total}</span></div>
+      <div className="mb-3 text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>
+        Total <span className="font-bold" style={{ color: 'hsl(var(--primary))' }}>🍺 {total}</span>
+      </div>
       {sorted.length === 0 ? (
-        <div className="text-gray-400 text-sm">No data</div>
+        <div className="text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>No data</div>
       ) : (
-        <ul className="divide-y divide-indigo-100">
+        <ul className="divide-y" style={{ borderColor: 'hsl(var(--border))' }}>
           {sorted.map(({ user, count }, i) => (
             <li
               key={user}
-              className="flex items-center justify-between py-2 group hover:bg-indigo-50 transition rounded-lg px-2"
-              style={{ animation: `fadein 0.3s ${i * 0.01}s both` }}
+              className="flex items-center justify-between py-2 group transition rounded-lg px-2 hover:opacity-80"
+              style={{
+                animation: `fadein 0.3s ${i * 0.01}s both`,
+                borderColor: 'hsl(var(--border))',
+              }}
             >
               <div className="flex items-center gap-3">
                 {avatars[user] ? (
@@ -162,18 +177,27 @@ export default function UsersList({ title, users, range }: UsersListProps) {
                     width={32}
                     height={32}
                     unoptimized
-                    className="w-8 h-8 rounded-full object-cover shadow-sm border border-indigo-200"
+                    className="w-8 h-8 rounded-full object-cover shadow-sm border"
+                    style={{ borderColor: 'hsl(var(--border))' }}
                   />
                 ) : (
-                  <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-indigo-100 text-indigo-600 font-bold text-lg shadow-sm">
+                  <span
+                    className="inline-flex items-center justify-center w-8 h-8 rounded-full font-bold text-lg shadow-sm"
+                    style={{
+                      backgroundColor: 'hsl(var(--accent))',
+                      color: 'hsl(var(--accent-foreground))',
+                    }}
+                  >
                     {names[user]?.[0]?.toUpperCase() || user[0]}
                   </span>
                 )}
-                <span className="text-base text-gray-800 font-medium">{names[user] || user}</span>
+                <span className="text-base font-medium" style={{ color: 'hsl(var(--foreground))' }}>
+                  {names[user] || user}
+                </span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-yellow-500 text-lg">🍺</span>
-                <span className="text-base font-bold text-indigo-700">{count}</span>
+                <span className="text-lg">🍺</span>
+                <span className="text-base font-bold" style={{ color: 'hsl(var(--primary))' }}>{count}</span>
               </div>
             </li>
           ))}

@@ -58,11 +58,11 @@ export default function ThemeToggle() {
         </span>
       </button>
 
-      {/* Tooltip */}
+      {/* Tooltip - positioned below button to avoid header clipping */}
       {showTooltip && (
         <div
           role="tooltip"
-          className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 px-2 py-1 text-xs rounded whitespace-nowrap pointer-events-none z-50 transition-opacity duration-150"
+          className="absolute left-1/2 -translate-x-1/2 top-full mt-2 px-2 py-1 text-xs rounded whitespace-nowrap pointer-events-none z-50 transition-opacity duration-150"
           style={{
             backgroundColor: 'hsl(var(--popover))',
             color: 'hsl(var(--popover-foreground))',
@@ -71,13 +71,13 @@ export default function ThemeToggle() {
           }}
         >
           {tooltipText}
-          {/* Tooltip arrow */}
+          {/* Tooltip arrow pointing up */}
           <div
-            className="absolute left-1/2 -translate-x-1/2 top-full w-0 h-0"
+            className="absolute left-1/2 -translate-x-1/2 bottom-full w-0 h-0"
             style={{
               borderLeft: '4px solid transparent',
               borderRight: '4px solid transparent',
-              borderTop: '4px solid hsl(var(--border))',
+              borderBottom: '4px solid hsl(var(--border))',
             }}
           />
         </div>

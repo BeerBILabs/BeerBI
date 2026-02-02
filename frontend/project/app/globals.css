@@ -187,3 +187,17 @@ button:hover, .btn:hover {
 :root .react-datepicker__navigation-icon::before {
   border-color: hsl(var(--card-foreground)) !important;
 }
+
+/* DatePicker input field styling with consistent transitions */
+:root .react-datepicker-wrapper,
+:root .react-datepicker__input-container,
+:root .react-datepicker__input-container input {
+  background-color: hsl(var(--card)) !important;
+  color: hsl(var(--card-foreground)) !important;
+  border-color: hsl(var(--border)) !important;
+  transition: color 250ms ease-in-out, background-color 250ms ease-in-out, border-color 250ms ease-in-out !important;
+}
+
+:root .react-datepicker__input-container input {
+  border: 1px solid hsl(var(--border)) !important;
+}

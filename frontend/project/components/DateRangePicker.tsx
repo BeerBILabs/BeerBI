@@ -10,8 +10,19 @@ type DateRangePickerProps = {
 }
 
 export default function DateRangePicker({ start, end, onChange }: DateRangePickerProps): ReactElement {
+  // Inline style ensures consistent 250ms transition for all color properties
+  const inputStyle = {
+    backgroundColor: 'hsl(var(--card))',
+    color: 'hsl(var(--card-foreground))',
+    borderColor: 'hsl(var(--border))',
+    transition: 'color 250ms ease-in-out, background-color 250ms ease-in-out, border-color 250ms ease-in-out',
+  };
+
   return (
-    <div className="flex items-center gap-3 card rounded-lg px-3 py-2 shadow-sm border bordered">
+    <div
+      className="flex items-center gap-3 rounded-lg px-3 py-2 shadow-sm border"
+      style={inputStyle}
+    >
       <DatePicker
         selected={start ? new Date(start) : null}
         onChange={(d: Date | null) => {
@@ -22,8 +33,9 @@ export default function DateRangePicker({ start, end, onChange }: DateRangePicke
         selectsStart
         startDate={start ? new Date(start) : null}
         endDate={end ? new Date(end) : null}
-        className="rounded bordered card px-2 py-1 transition"
-        calendarClassName="rounded-lg shadow-lg border bordered card"
+        className="rounded px-2 py-1 border"
+        wrapperClassName="date-picker-wrapper"
+        calendarClassName="rounded-lg shadow-lg border"
       />
       <span className="font-bold" style={{ color: 'hsl(var(--muted-foreground))' }}>to</span>
       <DatePicker
@@ -36,8 +48,9 @@ export default function DateRangePicker({ start, end, onChange }: DateRangePicke
         selectsEnd
         startDate={start ? new Date(start) : null}
         endDate={end ? new Date(end) : null}
-        className="rounded bordered card px-2 py-1 transition"
-        calendarClassName="rounded-lg shadow-lg border bordered card"
+        className="rounded px-2 py-1 border"
+        wrapperClassName="date-picker-wrapper"
+        calendarClassName="rounded-lg shadow-lg border"
       />
     </div>
   );
