@@ -48,7 +48,12 @@ func (ep *EventProcessor) HandleEvent(evt socketmode.Event) {
 			ep.logger.Warn().Msg("received EventTypeEventsAPI with nil request")
 			return
 		}
-		ep.slackManager.GetSocketClient().Ack(*evt.Request)
+		if socketClient := ep.slackManager.GetSocketClient(); socketClient != nil {
+			socketClient.Ack(*evt.Request)
+		} else {
+			ep.logger.Warn().Msg("socket client is nil, cannot ack event")
+			return
+		}
 		eventsAPIEvent, ok := evt.Data.(slackevents.EventsAPIEvent)
 		if !ok {
 			ep.logger.Warn().Str("type", fmt.Sprintf("%T", evt.Data)).Msg("unexpected event data type")
@@ -57,7 +62,7 @@ func (ep *EventProcessor) HandleEvent(evt socketmode.Event) {
 		// Deduplicate based on the Events API envelope ID when available.
 		// Try to get a stable envelope id from the socketmode event request
 		envelopeID := "" //nolint:typecheck // Used in event ID generation below
-		if evt.Request != nil && evt.Request.EnvelopeID != "" {
+		if evt.Request.EnvelopeID != "" {
 			envelopeID = evt.Request.EnvelopeID
 		}
 		if eventsAPIEvent.Type == slackevents.CallbackEvent {
@@ -190,8 +195,9 @@ func (ep *EventProcessor) handleMessageEvent(ev *slackevents.MessageEvent, envel
 		}
 		if err := ep.store.AddBeer(ev.User, recipient, ev.TimeStamp, eventTime, count); err != nil {
 			ep.logger.Error().Err(err).Str("giver", ev.User).Str("recipient", recipient).Int("count", count).Msg("failed to add beer")
+		} else {
+			ep.logger.Info().Str("giver", ev.User).Str("recipient", recipient).Int("count", count).Msg("beer given")
 		}
-		ep.logger.Info().Str("giver", ev.User).Str("recipient", recipient).Int("count", count).Msg("beer given")
 	}
 	// event was pre-marked via TryMarkEventProcessed
 }

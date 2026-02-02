@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -108,11 +109,14 @@ func (h *APIHandlers) UserHandler(w http.ResponseWriter, r *http.Request) {
 		"real_name":     user.RealName,
 		"profile_image": user.Profile.Image192, // or Image72 for smaller, Image512 for larger
 	}
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(response); err != nil {
 		h.logger.Error().Str("handler", "user").Err(err).Msg("failed to encode response")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(buf.Bytes())
 }
 
 // GiversHandler returns the list of all givers
@@ -127,11 +131,14 @@ func (h *APIHandlers) GiversHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.logger.Info().Str("handler", "givers").Int("count", len(list)).Msg("request completed")
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(list); err != nil {
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(list); err != nil {
 		h.logger.Error().Str("handler", "givers").Err(err).Msg("failed to encode response")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(buf.Bytes())
 }
 
 // RecipientsHandler returns the list of all recipients
@@ -146,11 +153,14 @@ func (h *APIHandlers) RecipientsHandler(w http.ResponseWriter, r *http.Request) 
 	}
 
 	h.logger.Info().Str("handler", "recipients").Int("count", len(list)).Msg("request completed")
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(list); err != nil {
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(list); err != nil {
 		h.logger.Error().Str("handler", "recipients").Err(err).Msg("failed to encode response")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(buf.Bytes())
 }
 
 // HealthHandler returns the health status of the service
@@ -181,8 +191,12 @@ func (h *APIHandlers) HealthHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.logger.Info().Str("handler", "health").Str("status", health["status"].(string)).Msg("request completed")
-	w.WriteHeader(statusCode)
-	if err := json.NewEncoder(w).Encode(health); err != nil {
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(health); err != nil {
 		h.logger.Error().Str("handler", "health").Err(err).Msg("failed to encode response")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
+	w.WriteHeader(statusCode)
+	_, _ = w.Write(buf.Bytes())
 }

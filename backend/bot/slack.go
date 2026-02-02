@@ -23,7 +23,6 @@ type SlackConnectionManager struct {
 	mu               sync.RWMutex
 	logger           zerolog.Logger
 	stopEventProcess context.CancelFunc
-	oldSocketClient  *socketmode.Client // track old client for cleanup
 }
 
 // NewSlackConnectionManager creates a new connection manager
@@ -129,8 +128,6 @@ func (scm *SlackConnectionManager) StartWithReconnection(ctx context.Context, ev
 				if scm.stopEventProcess != nil {
 					scm.stopEventProcess()
 				}
-				// Keep reference to old socket client for cleanup
-				scm.oldSocketClient = scm.socketClient
 
 				// Create new socket client for this connection attempt
 				scm.socketClient = socketmode.New(scm.client)

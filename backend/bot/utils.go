@@ -28,6 +28,9 @@ func parseDateRangeFromParams(r *http.Request) (time.Time, time.Time, error) {
 		if err1 != nil || err2 != nil {
 			return time.Time{}, time.Time{}, fmt.Errorf("invalid start or end date")
 		}
+		if start.After(end) {
+			return time.Time{}, time.Time{}, fmt.Errorf("start date must not be after end date")
+		}
 		return start, end, nil
 	}
 	return time.Time{}, time.Time{}, fmt.Errorf("must provide either day=YYYY-MM-DD or start=YYYY-MM-DD&end=YYYY-MM-DD")

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/subtle"
 	"net/http"
 	"strings"
 
@@ -24,7 +25,7 @@ func authMiddleware(apiToken string, logger zerolog.Logger, next http.Handler) h
 			return
 		}
 
-		if bearerToken[1] != apiToken {
+		if subtle.ConstantTimeCompare([]byte(bearerToken[1]), []byte(apiToken)) != 1 {
 			logger.Warn().Str("path", r.URL.Path).Str("method", r.Method).Str("remote", r.RemoteAddr).Msg("unauthorized: invalid token")
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
