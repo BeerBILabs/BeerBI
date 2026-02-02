@@ -17,15 +17,14 @@ async function proxy(
   // Rebuild headers, propagate Authorization, or fall back to API_TOKEN
   const headers = new Headers()
   const authHeader = request.headers.get('authorization')
-  const HARDCODED_API_TOKEN = process.env.API_TOKEN || 'my-secret-token'
-  let authSource: 'none' | 'client' | 'HARDCODED' = 'none'
+  let authSource: 'none' | 'client' | 'environment' = 'none'
 
   if (authHeader) {
     headers.set('Authorization', authHeader)
     authSource = 'client'
-  } else if (HARDCODED_API_TOKEN) {
-    headers.set('Authorization', `Bearer ${HARDCODED_API_TOKEN}`)
-    authSource = 'HARDCODED'
+  } else if (process.env.API_TOKEN) {
+    headers.set('Authorization', `Bearer ${process.env.API_TOKEN}`)
+    authSource = 'environment'
   }
 
   // Forward content-type if present
@@ -33,7 +32,7 @@ async function proxy(
   if (contentType) headers.set('content-type', contentType)
 
   // Loud log
-  console.log('proxy (app router) authSource=', authSource, 'path=', pathStr)
+  console.log(`proxy (app router) authSource=${authSource} path=${pathStr}`)
 
   // Prepare body for non-GET/HEAD
   let body: BodyInit | undefined = undefined

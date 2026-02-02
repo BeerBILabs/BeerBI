@@ -33,9 +33,9 @@ export default function DateRangePicker({ start, end, onChange }: DateRangePicke
         selectsStart
         startDate={start ? new Date(start) : null}
         endDate={end ? new Date(end) : null}
-        className="rounded px-2 py-1 border"
+        className="rounded px-2 py-1"
         wrapperClassName="date-picker-wrapper"
-        calendarClassName="rounded-lg shadow-lg border"
+        calendarClassName="rounded-lg shadow-lg"
       />
       <span className="font-bold" style={{ color: 'hsl(var(--muted-foreground))' }}>to</span>
       <DatePicker
@@ -48,9 +48,9 @@ export default function DateRangePicker({ start, end, onChange }: DateRangePicke
         selectsEnd
         startDate={start ? new Date(start) : null}
         endDate={end ? new Date(end) : null}
-        className="rounded px-2 py-1 border"
+        className="rounded px-2 py-1"
         wrapperClassName="date-picker-wrapper"
-        calendarClassName="rounded-lg shadow-lg border"
+        calendarClassName="rounded-lg shadow-lg"
       />
     </div>
   );

@@ -199,5 +199,5 @@ button:hover, .btn:hover {
 }
 
 :root .react-datepicker__input-container input {
-  border: 1px solid hsl(var(--border)) !important;
+  border: 1px solid hsl(var(--card)) !important;
 }
