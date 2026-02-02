@@ -106,19 +106,19 @@ export function NetworkChart({ startDate, endDate, limit = 20 }: NetworkChartPro
           const widthPercent = (pair.count / maxCount) * 100;
 
           return (
-            <div key={`${pair.giver}-${pair.recipient}`} className="flex items-center gap-3">
+            <div key={`${pair.giver}-${pair.recipient}`} className="flex items-center gap-2">
               <div
-                className="text-sm font-medium truncate w-24 text-right"
+                className="text-sm font-medium w-30 truncate text-right"
                 style={{ color: "hsl(var(--foreground))" }}
                 title={giverName}
               >
                 {giverName}
               </div>
-              <div className="flex-1 relative h-6">
+              <div className="w-40 relative h-5">
                 <div
-                  className="absolute inset-y-0 left-0 rounded-r-full flex items-center justify-end pr-2"
+                  className="absolute inset-y-0 left-0 rounded-r flex items-center justify-end pr-1.5"
                   style={{
-                    width: `${Math.max(widthPercent, 10)}%`,
+                    width: `${Math.max(widthPercent, 50)}%`,
                     backgroundColor: colors.given,
                     opacity: 0.9 - index * 0.03,
                   }}
@@ -128,11 +128,8 @@ export function NetworkChart({ startDate, endDate, limit = 20 }: NetworkChartPro
                   </span>
                 </div>
               </div>
-              <div className="text-center" style={{ color: "hsl(var(--muted-foreground))" }}>
-                →
-              </div>
               <div
-                className="text-sm font-medium truncate w-24"
+                className="text-sm font-medium w-30 truncate text-left"
                 style={{ color: "hsl(var(--foreground))" }}
                 title={recipientName}
               >
