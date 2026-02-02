@@ -13,15 +13,16 @@ import (
 
 // SlackConnectionManager handles Slack socket mode connection with reconnection logic
 type SlackConnectionManager struct {
-	client         *slack.Client
-	socketClient   *socketmode.Client
-	botToken       string
-	appToken       string
-	isConnected    bool
-	lastPing       time.Time
-	reconnectCount int
-	mu             sync.RWMutex
-	logger         zerolog.Logger
+	client           *slack.Client
+	socketClient     *socketmode.Client
+	botToken         string
+	appToken         string
+	isConnected      bool
+	lastPing         time.Time
+	reconnectCount   int
+	mu               sync.RWMutex
+	logger           zerolog.Logger
+	stopEventProcess context.CancelFunc
 }
 
 // NewSlackConnectionManager creates a new connection manager
@@ -49,11 +50,15 @@ func (scm *SlackConnectionManager) IsConnected() bool {
 // SetConnected updates the connection status
 func (scm *SlackConnectionManager) setConnected(connected bool) {
 	scm.mu.Lock()
-	defer scm.mu.Unlock()
+	reconnectCount := scm.reconnectCount
 	scm.isConnected = connected
 	if connected {
 		scm.lastPing = time.Now()
-		scm.logger.Info().Int("reconnectCount", scm.reconnectCount).Msg("Slack connection established")
+	}
+	scm.mu.Unlock()
+
+	if connected {
+		scm.logger.Info().Int("reconnectCount", reconnectCount).Msg("Slack connection established")
 	} else {
 		scm.logger.Warn().Msg("Slack connection lost")
 	}
@@ -92,13 +97,17 @@ func (scm *SlackConnectionManager) StartWithReconnection(ctx context.Context, ev
 				return
 			default:
 				// Calculate exponential backoff delay
-				delay := time.Duration(math.Pow(2, float64(scm.reconnectCount))) * time.Second
+				scm.mu.RLock()
+				reconnectCount := scm.reconnectCount
+				scm.mu.RUnlock()
+
+				delay := time.Duration(math.Pow(2, float64(reconnectCount))) * time.Second
 				if delay > maxReconnectDelay {
 					delay = maxReconnectDelay
 				}
 
-				if scm.reconnectCount > 0 {
-					scm.logger.Info().Dur("delay", delay).Int("attempt", scm.reconnectCount+1).Msg("Reconnecting to Slack")
+				if reconnectCount > 0 {
+					scm.logger.Info().Dur("delay", delay).Int("attempt", reconnectCount+1).Msg("Reconnecting to Slack")
 					select {
 					case <-time.After(delay):
 					case <-ctx.Done():
@@ -109,18 +118,29 @@ func (scm *SlackConnectionManager) StartWithReconnection(ctx context.Context, ev
 				// Test connection first
 				if err := scm.TestConnection(ctx); err != nil {
 					scm.logger.Error().Err(err).Msg("Slack API connection test failed")
+					scm.mu.Lock()
 					scm.reconnectCount++
+					scm.mu.Unlock()
 					continue
 				}
 
-				// Create new socket client for this connection attempt
+				// Stop previous event processor if running
 				scm.mu.Lock()
+				if scm.stopEventProcess != nil {
+					scm.stopEventProcess()
+				}
+
+				// Create new socket client for this connection attempt
 				scm.socketClient = socketmode.New(scm.client)
-				scm.mu.Unlock()
 				scm.reconnectCount = 0
 
+				// Create cancellable context for event processing
+				eventCtx, eventCancel := context.WithCancel(ctx)
+				scm.stopEventProcess = eventCancel
+				scm.mu.Unlock()
+
 				// Start event processing
-				go scm.processEvents(eventHandler)
+				go scm.processEvents(eventCtx, eventHandler)
 
 				// Run the socket mode client
 				scm.logger.Info().Msg("Starting Slack socket mode client")
@@ -131,7 +151,9 @@ func (scm *SlackConnectionManager) StartWithReconnection(ctx context.Context, ev
 						return
 					} else {
 						scm.logger.Error().Err(err).Msg("Socket mode client error, will reconnect")
+						scm.mu.Lock()
 						scm.reconnectCount++
+						scm.mu.Unlock()
 					}
 				} else {
 					scm.setConnected(false)
@@ -143,21 +165,36 @@ func (scm *SlackConnectionManager) StartWithReconnection(ctx context.Context, ev
 }
 
 // processEvents handles socket mode events
-func (scm *SlackConnectionManager) processEvents(eventHandler func(socketmode.Event)) {
-	for evt := range scm.socketClient.Events {
-		scm.mu.Lock()
-		scm.lastPing = time.Now()
-		scm.mu.Unlock()
+func (scm *SlackConnectionManager) processEvents(ctx context.Context, eventHandler func(socketmode.Event)) {
+	scm.mu.RLock()
+	events := scm.socketClient.Events
+	scm.mu.RUnlock()
 
-		// Handle special events
-		if evt.Type == socketmode.EventTypeHello {
-			scm.logger.Debug().Msg("Slack socket mode: hello received")
-			scm.setConnected(true)
-		}
+	for {
+		select {
+		case <-ctx.Done():
+			scm.logger.Debug().Msg("Event processor stopping due to context cancellation")
+			return
+		case evt, ok := <-events:
+			if !ok {
+				scm.logger.Debug().Msg("Event channel closed, stopping event processor")
+				return
+			}
 
-		// Call the custom event handler
-		if eventHandler != nil {
-			eventHandler(evt)
+			scm.mu.Lock()
+			scm.lastPing = time.Now()
+			scm.mu.Unlock()
+
+			// Handle special events
+			if evt.Type == socketmode.EventTypeHello {
+				scm.logger.Debug().Msg("Slack socket mode: hello received")
+				scm.setConnected(true)
+			}
+
+			// Call the custom event handler
+			if eventHandler != nil {
+				eventHandler(evt)
+			}
 		}
 	}
 }
