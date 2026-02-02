@@ -66,18 +66,20 @@ Plans:
   5. URL changes when selecting quarter (e.g., /rankings/2026/q1) and is shareable
   6. User can click "Current Quarter" shortcut to jump to current quarter
   7. User can click "Last Quarter" shortcut to jump to previous quarter
-**Plans**: TBD
+**Plans**: 3 plans
 
 Plans:
-- [ ] TBD (pending plan-phase)
+- [ ] 03-01-PLAN.md - Route foundation (utilities + URL structure)
+- [ ] 03-02-PLAN.md - Navigation components (tabs, year selector, shortcuts)
+- [ ] 03-03-PLAN.md - Leaderboard display with rank indicators + entry points
 
 ## Progress
 
 **Execution Order:**
-Phases execute in numeric order: 1 → 2 → 3
+Phases execute in numeric order: 1 -> 2 -> 3
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
 | 1. Dependency Modernization | 3/3 | Complete | 2026-02-01 |
 | 2. Beer-Branded Theming | 3/3 | Complete | 2026-02-02 |
-| 3. Quarterly Rankings | 0/TBD | Not started | - |
+| 3. Quarterly Rankings | 0/3 | Ready | - |
