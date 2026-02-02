@@ -57,11 +57,33 @@ export function QuarterlyChart({ startYear, endYear }: QuarterlyChartProps) {
 
   const colors = defaultChartColors;
 
-  // Format data for chart
-  const chartData = data.map((d) => ({
-    ...d,
-    label: `Q${d.quarter} ${d.year}`,
-  }));
+  // Generate all quarters in range and fill in zeros for missing ones
+  const chartData = (() => {
+    const dataMap = new Map<string, number>();
+    data.forEach((d) => {
+      dataMap.set(`${d.year}-${d.quarter}`, d.count);
+    });
+
+    const result: { year: number; quarter: number; count: number; label: string }[] = [];
+    for (let year = effectiveStartYear; year <= effectiveEndYear; year++) {
+      for (let quarter = 1; quarter <= 4; quarter++) {
+        // Skip future quarters
+        const now = new Date();
+        const currentQuarter = Math.ceil((now.getMonth() + 1) / 3);
+        if (year === now.getFullYear() && quarter > currentQuarter) continue;
+        if (year > now.getFullYear()) continue;
+
+        const count = dataMap.get(`${year}-${quarter}`) || 0;
+        result.push({
+          year,
+          quarter,
+          count,
+          label: `Q${quarter} ${year}`,
+        });
+      }
+    }
+    return result;
+  })();
 
   return (
     <ChartContainer
