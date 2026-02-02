@@ -115,6 +115,7 @@ func main() {
 	mux.Handle("/api/given", authMiddleware(*apiToken, zlogger, http.HandlerFunc(handlers.GivenHandler)))
 	mux.Handle("/api/received", authMiddleware(*apiToken, zlogger, http.HandlerFunc(handlers.ReceivedHandler)))
 	mux.Handle("/api/user", authMiddleware(*apiToken, zlogger, http.HandlerFunc(handlers.UserHandler)))
+	// Public endpoints (no auth required)
 	mux.Handle("/api/givers", http.HandlerFunc(handlers.GiversHandler))
 	mux.Handle("/api/recipients", http.HandlerFunc(handlers.RecipientsHandler))
 	mux.HandleFunc("/api/health", handlers.HealthHandler)
@@ -132,7 +133,7 @@ func main() {
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
 	// Create event processor and handler
-	eventProcessor := NewEventProcessor(store, slackManager, *channelID, emoji, *maxPerDay, zlogger)
+	eventProcessor := NewEventProcessor(store, slackManager, *channelID, emoji, *maxPerDay, zlogger, msgsProcessed)
 
 	// Start Slack connection manager with automatic reconnection
 	slackManager.StartWithReconnection(ctx, eventProcessor.HandleEvent)

@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
@@ -13,23 +14,29 @@ import (
 
 // EventProcessor handles Slack event processing
 type EventProcessor struct {
-	store        *SQLiteStore
-	slackManager *SlackConnectionManager
-	channelID    string
-	emoji        string
-	maxPerDay    int
-	logger       zerolog.Logger
+	store         *SQLiteStore
+	slackManager  *SlackConnectionManager
+	channelID     string
+	emoji         string
+	maxPerDay     int
+	logger        zerolog.Logger
+	mentionRe     *regexp.Regexp
+	emojiRe       *regexp.Regexp
+	msgsProcessed *prometheus.CounterVec
 }
 
 // NewEventProcessor creates a new EventProcessor
-func NewEventProcessor(store *SQLiteStore, slackManager *SlackConnectionManager, channelID, emoji string, maxPerDay int, logger zerolog.Logger) *EventProcessor {
+func NewEventProcessor(store *SQLiteStore, slackManager *SlackConnectionManager, channelID, emoji string, maxPerDay int, logger zerolog.Logger, msgsProcessed *prometheus.CounterVec) *EventProcessor {
 	return &EventProcessor{
-		store:        store,
-		slackManager: slackManager,
-		channelID:    channelID,
-		emoji:        emoji,
-		maxPerDay:    maxPerDay,
-		logger:       logger,
+		store:         store,
+		slackManager:  slackManager,
+		channelID:     channelID,
+		emoji:         emoji,
+		maxPerDay:     maxPerDay,
+		logger:        logger,
+		mentionRe:     regexp.MustCompile(`<@([A-Z0-9]+)>`),
+		emojiRe:       regexp.MustCompile(regexp.QuoteMeta(emoji)),
+		msgsProcessed: msgsProcessed,
 	}
 }
 
@@ -37,6 +44,10 @@ func NewEventProcessor(store *SQLiteStore, slackManager *SlackConnectionManager,
 func (ep *EventProcessor) HandleEvent(evt socketmode.Event) {
 	switch evt.Type {
 	case socketmode.EventTypeEventsAPI:
+		if evt.Request == nil {
+			ep.logger.Warn().Msg("received EventTypeEventsAPI with nil request")
+			return
+		}
 		ep.slackManager.GetSocketClient().Ack(*evt.Request)
 		eventsAPIEvent, ok := evt.Data.(slackevents.EventsAPIEvent)
 		if !ok {
@@ -96,14 +107,16 @@ func (ep *EventProcessor) handleMessageEvent(ev *slackevents.MessageEvent, envel
 		}
 	}
 	ep.logger.Debug().Str("eventID", eventID).Str("user", ev.User).Str("channel", ev.Channel).Msg("processing message event")
+
+	// Increment Prometheus counter
+	if ep.msgsProcessed != nil {
+		ep.msgsProcessed.WithLabelValues(ev.Channel).Inc()
+	}
+
 	// New logic: associate beers with the last seen mention
-
-	mentionRe := regexp.MustCompile(`<@([A-Z0-9]+)>`)
-	emojiRe := regexp.MustCompile(regexp.QuoteMeta(ep.emoji))
-
-	mentions := mentionRe.FindAllStringSubmatch(ev.Text, -1)
-	mentionIndices := mentionRe.FindAllStringSubmatchIndex(ev.Text, -1)
-	emojiIndices := emojiRe.FindAllStringIndex(ev.Text, -1)
+	mentions := ep.mentionRe.FindAllStringSubmatch(ev.Text, -1)
+	mentionIndices := ep.mentionRe.FindAllStringSubmatchIndex(ev.Text, -1)
+	emojiIndices := ep.emojiRe.FindAllStringIndex(ev.Text, -1)
 
 	if len(mentions) == 0 || len(emojiIndices) == 0 {
 		return
@@ -121,7 +134,8 @@ func (ep *EventProcessor) handleMessageEvent(ev *slackevents.MessageEvent, envel
 				}
 			}
 		}
-		if recipientID != "" {
+		// Prevent self-gifting
+		if recipientID != "" && recipientID != ev.User {
 			recipientBeers[recipientID]++
 		}
 	}

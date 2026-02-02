@@ -66,6 +66,8 @@ func (scm *SlackConnectionManager) GetClient() *slack.Client {
 
 // GetSocketClient returns the socket mode client
 func (scm *SlackConnectionManager) GetSocketClient() *socketmode.Client {
+	scm.mu.RLock()
+	defer scm.mu.RUnlock()
 	return scm.socketClient
 }
 
@@ -112,8 +114,9 @@ func (scm *SlackConnectionManager) StartWithReconnection(ctx context.Context, ev
 				}
 
 				// Create new socket client for this connection attempt
+				scm.mu.Lock()
 				scm.socketClient = socketmode.New(scm.client)
-				scm.setConnected(true)
+				scm.mu.Unlock()
 				scm.reconnectCount = 0
 
 				// Start event processing
