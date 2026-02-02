@@ -117,70 +117,72 @@ function LeaderboardColumn({
           No data
         </div>
       ) : (
-        <ul className="divide-y" style={{ borderColor: "hsl(var(--border))" }}>
-          {users.map(({ userId, count }, i) => {
-            const rank = i + 1;
-            const previousRank = showRankChange
-              ? previousRanks[userId] ?? null
-              : null;
+        <div className="max-h-[660px] overflow-y-auto pr-1">
+          <ul className="divide-y" style={{ borderColor: "hsl(var(--border))" }}>
+            {users.map(({ userId, count }, i) => {
+              const rank = i + 1;
+              const previousRank = showRankChange
+                ? previousRanks[userId] ?? null
+                : null;
 
-            return (
-              <li
-                key={userId}
-                className="flex items-center justify-between py-2 group transition rounded-lg px-2 hover:opacity-80"
-                style={{
-                  animation: `fadein 0.3s ${i * 0.01}s both`,
-                  borderColor: "hsl(var(--border))",
-                }}
-              >
-                <div className="flex items-center gap-3">
-                  {avatars[userId] ? (
-                    <Image
-                      src={avatars[userId] as string}
-                      alt={names[userId] || userId}
-                      width={32}
-                      height={32}
-                      unoptimized
-                      className="w-8 h-8 rounded-full object-cover shadow-sm border"
-                      style={{ borderColor: "hsl(var(--border))" }}
-                    />
-                  ) : (
+              return (
+                <li
+                  key={userId}
+                  className="flex items-center justify-between py-2 group transition rounded-lg px-2 hover:opacity-80"
+                  style={{
+                    animation: `fadein 0.3s ${i * 0.01}s both`,
+                    borderColor: "hsl(var(--border))",
+                  }}
+                >
+                  <div className="flex items-center gap-3">
+                    {avatars[userId] ? (
+                      <Image
+                        src={avatars[userId] as string}
+                        alt={names[userId] || userId}
+                        width={32}
+                        height={32}
+                        unoptimized
+                        className="w-8 h-8 rounded-full object-cover shadow-sm border"
+                        style={{ borderColor: "hsl(var(--border))" }}
+                      />
+                    ) : (
+                      <span
+                        className="inline-flex items-center justify-center w-8 h-8 rounded-full font-bold text-lg shadow-sm"
+                        style={{
+                          backgroundColor: "hsl(var(--accent))",
+                          color: "hsl(var(--accent-foreground))",
+                        }}
+                      >
+                        {names[userId]?.[0]?.toUpperCase() || userId[0]}
+                      </span>
+                    )}
                     <span
-                      className="inline-flex items-center justify-center w-8 h-8 rounded-full font-bold text-lg shadow-sm"
-                      style={{
-                        backgroundColor: "hsl(var(--accent))",
-                        color: "hsl(var(--accent-foreground))",
-                      }}
+                      className="text-base font-medium"
+                      style={{ color: "hsl(var(--foreground))" }}
                     >
-                      {names[userId]?.[0]?.toUpperCase() || userId[0]}
+                      {names[userId] || userId}
                     </span>
-                  )}
-                  <span
-                    className="text-base font-medium"
-                    style={{ color: "hsl(var(--foreground))" }}
-                  >
-                    {names[userId] || userId}
-                  </span>
-                  {showRankChange && (
-                    <RankChangeIndicator
-                      currentRank={rank}
-                      previousRank={previousRank}
-                    />
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-lg">{"\u{1F37A}"}</span>
-                  <span
-                    className="text-base font-bold"
-                    style={{ color: "hsl(var(--primary))" }}
-                  >
-                    {count}
-                  </span>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+                    {showRankChange && (
+                      <RankChangeIndicator
+                        currentRank={rank}
+                        previousRank={previousRank}
+                      />
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">{"\u{1F37A}"}</span>
+                    <span
+                      className="text-base font-bold"
+                      style={{ color: "hsl(var(--primary))" }}
+                    >
+                      {count}
+                    </span>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
       )}
     </div>
   );

@@ -37,7 +37,10 @@ export default function RankingsLayout({ children }: RankingsLayoutProps) {
   }
 
   return (
-    <div className="w-full max-w-4xl mx-auto px-4 py-6">
+    <div
+      className="w-full max-w-4xl mx-auto px-4 py-6 min-h-[calc(100vh-180px)]"
+      style={{ backgroundColor: "hsl(var(--background))" }}
+    >
       <h1
         className="text-2xl font-bold mb-6"
         style={{ color: "hsl(var(--primary))" }}
