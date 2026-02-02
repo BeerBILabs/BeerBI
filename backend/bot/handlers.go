@@ -1,0 +1,188 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/rs/zerolog"
+	"github.com/slack-go/slack"
+)
+
+// APIHandlers holds dependencies for HTTP handlers
+type APIHandlers struct {
+	store        *SQLiteStore
+	slackClient  *slack.Client
+	slackManager *SlackConnectionManager
+	logger       zerolog.Logger
+}
+
+// NewAPIHandlers creates a new APIHandlers instance
+func NewAPIHandlers(store *SQLiteStore, slackClient *slack.Client, slackManager *SlackConnectionManager, logger zerolog.Logger) *APIHandlers {
+	return &APIHandlers{
+		store:        store,
+		slackClient:  slackClient,
+		slackManager: slackManager,
+		logger:       logger,
+	}
+}
+
+// GivenHandler returns the number of beers given by a user in a date range
+func (h *APIHandlers) GivenHandler(w http.ResponseWriter, r *http.Request) {
+	h.logger.Debug().Str("handler", "given").Str("method", r.Method).Str("path", r.URL.Path).Msg("request received")
+
+	user := r.URL.Query().Get("user")
+	if user == "" {
+		h.logger.Warn().Str("handler", "given").Msg("missing user parameter")
+		http.Error(w, "user required", http.StatusBadRequest)
+		return
+	}
+	start, end, err := parseDateRangeFromParams(r)
+	if err != nil {
+		h.logger.Warn().Str("handler", "given").Str("user", user).Err(err).Msg("invalid date range")
+		http.Error(w, "invalid or missing date range: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	c, err := h.store.CountGivenInDateRange(user, start, end)
+	if err != nil {
+		h.logger.Error().Str("handler", "given").Str("user", user).Err(err).Msg("database error")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info().Str("handler", "given").Str("user", user).Int("count", c).Msg("request completed")
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(fmt.Sprintf(`{"user":"%s","start":"%s","end":"%s","given":%d}`,
+		user, start.Format("2006-01-02"), end.Format("2006-01-02"), c)))
+}
+
+// ReceivedHandler returns the number of beers received by a user in a date range
+func (h *APIHandlers) ReceivedHandler(w http.ResponseWriter, r *http.Request) {
+	h.logger.Debug().Str("handler", "received").Str("method", r.Method).Str("path", r.URL.Path).Msg("request received")
+
+	user := r.URL.Query().Get("user")
+	if user == "" {
+		h.logger.Warn().Str("handler", "received").Msg("missing user parameter")
+		http.Error(w, "user required", http.StatusBadRequest)
+		return
+	}
+	start, end, err := parseDateRangeFromParams(r)
+	if err != nil {
+		h.logger.Warn().Str("handler", "received").Str("user", user).Err(err).Msg("invalid date range")
+		http.Error(w, "invalid or missing date range: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+	c, err := h.store.CountReceivedInDateRange(user, start, end)
+	if err != nil {
+		h.logger.Error().Str("handler", "received").Str("user", user).Err(err).Msg("database error")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info().Str("handler", "received").Str("user", user).Int("count", c).Msg("request completed")
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write([]byte(fmt.Sprintf(`{"user":"%s","start":"%s","end":"%s","received":%d}`,
+		user, start.Format("2006-01-02"), end.Format("2006-01-02"), c)))
+}
+
+// UserHandler returns user information from Slack
+func (h *APIHandlers) UserHandler(w http.ResponseWriter, r *http.Request) {
+	h.logger.Debug().Str("handler", "user").Str("method", r.Method).Str("path", r.URL.Path).Msg("request received")
+
+	userID := r.URL.Query().Get("user")
+	if userID == "" {
+		h.logger.Warn().Str("handler", "user").Msg("missing user parameter")
+		http.Error(w, "user required", http.StatusBadRequest)
+		return
+	}
+	user, err := h.slackClient.GetUserInfo(userID)
+	if err != nil {
+		h.logger.Error().Str("handler", "user").Str("userID", userID).Err(err).Msg("slack API error")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info().Str("handler", "user").Str("userID", userID).Str("real_name", user.RealName).Msg("request completed")
+	response := map[string]string{
+		"real_name":     user.RealName,
+		"profile_image": user.Profile.Image192, // or Image72 for smaller, Image512 for larger
+	}
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		h.logger.Error().Str("handler", "user").Err(err).Msg("failed to encode response")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// GiversHandler returns the list of all givers
+func (h *APIHandlers) GiversHandler(w http.ResponseWriter, r *http.Request) {
+	h.logger.Debug().Str("handler", "givers").Str("method", r.Method).Str("path", r.URL.Path).Msg("request received")
+
+	list, err := h.store.GetAllGivers()
+	if err != nil {
+		h.logger.Error().Str("handler", "givers").Err(err).Msg("database error")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info().Str("handler", "givers").Int("count", len(list)).Msg("request completed")
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(list); err != nil {
+		h.logger.Error().Str("handler", "givers").Err(err).Msg("failed to encode response")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// RecipientsHandler returns the list of all recipients
+func (h *APIHandlers) RecipientsHandler(w http.ResponseWriter, r *http.Request) {
+	h.logger.Debug().Str("handler", "recipients").Str("method", r.Method).Str("path", r.URL.Path).Msg("request received")
+
+	list, err := h.store.GetAllRecipients()
+	if err != nil {
+		h.logger.Error().Str("handler", "recipients").Err(err).Msg("database error")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info().Str("handler", "recipients").Int("count", len(list)).Msg("request completed")
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(list); err != nil {
+		h.logger.Error().Str("handler", "recipients").Err(err).Msg("failed to encode response")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// HealthHandler returns the health status of the service
+func (h *APIHandlers) HealthHandler(w http.ResponseWriter, r *http.Request) {
+	h.logger.Debug().Str("handler", "health").Str("method", r.Method).Str("path", r.URL.Path).Msg("request received")
+
+	w.Header().Set("Content-Type", "application/json")
+
+	health := map[string]interface{}{
+		"status":          "healthy",
+		"service":         "beerbot-backend",
+		"slack_connected": h.slackManager.IsConnected(),
+		"timestamp":       time.Now().UTC().Format(time.RFC3339),
+	}
+
+	// Test Slack connection if requested
+	if r.URL.Query().Get("check_slack") == "true" {
+		if err := h.slackManager.TestConnection(r.Context()); err != nil {
+			h.logger.Warn().Str("handler", "health").Err(err).Msg("slack connection test failed")
+			health["slack_connection_error"] = err.Error()
+			health["status"] = "degraded"
+		}
+	}
+
+	statusCode := http.StatusOK
+	if health["status"] == "degraded" {
+		statusCode = http.StatusServiceUnavailable
+	}
+
+	h.logger.Info().Str("handler", "health").Str("status", health["status"].(string)).Msg("request completed")
+	w.WriteHeader(statusCode)
+	if err := json.NewEncoder(w).Encode(health); err != nil {
+		h.logger.Error().Str("handler", "health").Err(err).Msg("failed to encode response")
+	}
+}

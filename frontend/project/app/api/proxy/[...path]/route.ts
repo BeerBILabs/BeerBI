@@ -53,6 +53,8 @@ async function proxy(
     const respContentType = resp.headers.get('Content-Type') || 'text/plain'
     const text = await resp.text()
 
+    console.log('proxy (app router) response status=', resp.status, 'path=', pathStr, 'text=', text)
+
     return new NextResponse(text, {
       status: resp.status,
       headers: { 'Content-Type': respContentType },
