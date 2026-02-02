@@ -4,67 +4,24 @@ import { useEffect, useState, useRef } from "react";
 import Image from "next/image";
 import { RankChangeIndicator } from "./RankChangeIndicator";
 import { getQuarterDates, getPreviousQuarter } from "@/lib/quarters";
+import {
+  getUserCache,
+  getCachedUser,
+  setCachedUser,
+} from "@/lib/userCache";
 
-interface QuarterlyLeaderboardProps {
-  year: number | null;
-  quarter: number | null;
+interface LeaderboardProps {
+  year?: number | null;
+  quarter?: number | null;
   showRankChange?: boolean;
+  dateRange?: { start: string; end: string } | null;
+  maxHeight?: string;
 }
-
-type CachedUserInfo = {
-  real_name: string;
-  profile_image: string | null;
-  cached_at: number;
-};
 
 type UserStats = {
   userId: string;
   count: number;
 };
-
-const USER_CACHE_KEY = "beerbot_user_cache";
-const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
-
-function getUserCache(): Record<string, CachedUserInfo> {
-  if (typeof window === "undefined") return {};
-  try {
-    const raw = localStorage.getItem(USER_CACHE_KEY);
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
-  }
-}
-
-function setUserCache(cache: Record<string, CachedUserInfo>): void {
-  if (typeof window === "undefined") return;
-  try {
-    localStorage.setItem(USER_CACHE_KEY, JSON.stringify(cache));
-  } catch {
-    // localStorage might be full or disabled
-  }
-}
-
-function getCachedUser(userId: string): CachedUserInfo | null {
-  const cache = getUserCache();
-  const entry = cache[userId];
-  if (!entry) return null;
-  if (Date.now() - entry.cached_at > CACHE_TTL_MS) return null;
-  return entry;
-}
-
-function setCachedUser(
-  userId: string,
-  realName: string,
-  profileImage: string | null
-): void {
-  const cache = getUserCache();
-  cache[userId] = {
-    real_name: realName,
-    profile_image: profileImage,
-    cached_at: Date.now(),
-  };
-  setUserCache(cache);
-}
 
 interface LeaderboardColumnProps {
   title: "Givers" | "Recipients";
@@ -73,6 +30,7 @@ interface LeaderboardColumnProps {
   showRankChange: boolean;
   names: Record<string, string>;
   avatars: Record<string, string | null>;
+  maxHeight?: string;
 }
 
 function LeaderboardColumn({
@@ -82,6 +40,7 @@ function LeaderboardColumn({
   showRankChange,
   names,
   avatars,
+  maxHeight,
 }: LeaderboardColumnProps) {
   const total = users.reduce((sum, u) => sum + u.count, 0);
 
@@ -117,7 +76,7 @@ function LeaderboardColumn({
           No data
         </div>
       ) : (
-        <div className="max-h-[660px] overflow-y-auto pr-1">
+        <div className={maxHeight ? `max-h-[${maxHeight}] overflow-y-auto pr-1` : "pr-1"} style={maxHeight ? { maxHeight, overflowY: "auto" } : undefined}>
           <ul className="divide-y" style={{ borderColor: "hsl(var(--border))" }}>
             {users.map(({ userId, count }, i) => {
               const rank = i + 1;
@@ -229,11 +188,13 @@ function LoadingSkeleton() {
   );
 }
 
-export function QuarterlyLeaderboard({
-  year,
-  quarter,
+export function Leaderboard({
+  year = null,
+  quarter = null,
   showRankChange = true,
-}: QuarterlyLeaderboardProps) {
+  dateRange = null,
+  maxHeight = "660px",
+}: LeaderboardProps) {
   const [givers, setGivers] = useState<UserStats[]>([]);
   const [recipients, setRecipients] = useState<UserStats[]>([]);
   const [prevGiverRanks, setPrevGiverRanks] = useState<Record<string, number>>({});
@@ -276,7 +237,10 @@ export function QuarterlyLeaderboard({
 
         // Calculate date range for current period
         let dateParams = "";
-        if (year !== null && quarter !== null) {
+        if (dateRange) {
+          // Use provided date range (homepage mode)
+          dateParams = `&start=${dateRange.start}&end=${dateRange.end}`;
+        } else if (year !== null && quarter !== null) {
           const { start, end } = getQuarterDates(year, quarter);
           dateParams = `&start=${start}&end=${end}`;
         } else {
@@ -450,7 +414,7 @@ export function QuarterlyLeaderboard({
     return () => {
       cancelled = true;
     };
-  }, [year, quarter, showRankChange]);
+  }, [year, quarter, showRankChange, dateRange]);
 
   if (loading) {
     return <LoadingSkeleton />;
@@ -492,7 +456,7 @@ export function QuarterlyLeaderboard({
         }}
       >
         <p className="text-lg" style={{ color: "hsl(var(--muted-foreground))" }}>
-          {"\u{1F37A}"} No beers recorded for this {year && quarter ? "quarter" : "period"}
+          {"\u{1F37A}"} No beers recorded for this {year !== null && quarter !== null ? "quarter" : "period"}
         </p>
       </div>
     );
@@ -507,6 +471,7 @@ export function QuarterlyLeaderboard({
         showRankChange={showRankChange && year !== null && quarter !== null}
         names={names}
         avatars={avatars}
+        maxHeight={maxHeight}
       />
       <LeaderboardColumn
         title="Recipients"
@@ -515,6 +480,7 @@ export function QuarterlyLeaderboard({
         showRankChange={showRankChange && year !== null && quarter !== null}
         names={names}
         avatars={avatars}
+        maxHeight={maxHeight}
       />
     </div>
   );

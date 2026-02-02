@@ -1,9 +1,9 @@
 "use client"
 
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import type { ReactElement } from 'react'
 import Link from 'next/link'
-import UsersList from './UsersList'
+import { Leaderboard } from './Leaderboard'
 import DateRangePicker from './DateRangePicker'
 
 type DateRange = { start: string; end: string }
@@ -64,24 +64,6 @@ const quickRanges: Array<{ label: string; get: () => DateRange }> = [
       return { start, end };
     }
   },
-  {
-    label: 'This Year',
-    get: () => {
-      const now = new Date();
-      const start = formatLocalDate(new Date(now.getFullYear(), 0, 1));
-      const end = formatLocalDate(now);
-      return { start, end };
-    }
-  },
-  {
-    label: 'Last Year',
-    get: () => {
-      const now = new Date();
-      const start = formatLocalDate(new Date(now.getFullYear() - 1, 0, 1));
-      const end = formatLocalDate(new Date(now.getFullYear() - 1, 11, 31));
-      return { start, end };
-    }
-  }
 ];
 
 export default function UsersPage(): ReactElement {
@@ -92,18 +74,6 @@ export default function UsersPage(): ReactElement {
     start: formatLocalDate(yearStart),
     end: formatLocalDate(now)
   })
-  const [givers, setGivers] = useState<string[]>([])
-  const [recipients, setRecipients] = useState<string[]>([])
-  // The proxy will inject an API token from server-side environment variables.
-  useEffect(() => {
-    async function load() {
-      const gResp = await fetch('/api/proxy/givers')
-      const rResp = await fetch('/api/proxy/recipients')
-      if (gResp.ok) setGivers(await gResp.json())
-      if (rResp.ok) setRecipients(await rResp.json())
-    }
-    load()
-  }, [])
 
   return (
     <section>
@@ -146,9 +116,12 @@ export default function UsersPage(): ReactElement {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-8 animate-fadein">
-        <UsersList title="Givers" users={givers} range={range} />
-        <UsersList title="Recipients" users={recipients} range={range} />
+      <div className="animate-fadein">
+        <Leaderboard
+          dateRange={range}
+          showRankChange={false}
+          maxHeight=""
+        />
       </div>
 
       <div className="flex justify-center mt-8">
