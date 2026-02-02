@@ -34,6 +34,12 @@ func (s *SQLiteStore) migrate() error {
 			event_id TEXT NOT NULL UNIQUE,
 			ts TEXT NOT NULL
 		);`,
+		`CREATE TABLE IF NOT EXISTS user_cache (
+			user_id TEXT PRIMARY KEY,
+			real_name TEXT NOT NULL,
+			profile_image TEXT,
+			updated_at DATETIME NOT NULL
+		);`,
 	}
 	for _, st := range aux {
 		if _, err := s.db.Exec(st); err != nil {
@@ -326,4 +332,39 @@ func (s *SQLiteStore) GetAllRecipients() ([]string, error) {
 		out = append(out, id)
 	}
 	return out, nil
+}
+
+// CachedUser represents a cached Slack user
+type CachedUser struct {
+	UserID       string
+	RealName     string
+	ProfileImage string
+	UpdatedAt    time.Time
+}
+
+// GetCachedUser retrieves a user from the cache by user ID
+func (s *SQLiteStore) GetCachedUser(userID string) (*CachedUser, error) {
+	var u CachedUser
+	var profileImage sql.NullString
+	var updatedAt string
+	err := s.db.QueryRow(`SELECT user_id, real_name, profile_image, updated_at FROM user_cache WHERE user_id = ?`, userID).Scan(&u.UserID, &u.RealName, &profileImage, &updatedAt)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if profileImage.Valid {
+		u.ProfileImage = profileImage.String
+	}
+	u.UpdatedAt, _ = time.Parse(time.RFC3339, updatedAt)
+	return &u, nil
+}
+
+// SetCachedUser stores or updates a user in the cache
+func (s *SQLiteStore) SetCachedUser(userID, realName, profileImage string) error {
+	_, err := s.db.Exec(`INSERT INTO user_cache (user_id, real_name, profile_image, updated_at) VALUES (?, ?, ?, ?)
+		ON CONFLICT(user_id) DO UPDATE SET real_name = excluded.real_name, profile_image = excluded.profile_image, updated_at = excluded.updated_at`,
+		userID, realName, profileImage, time.Now().UTC().Format(time.RFC3339))
+	return err
 }

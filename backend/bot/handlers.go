@@ -87,7 +87,7 @@ func (h *APIHandlers) ReceivedHandler(w http.ResponseWriter, r *http.Request) {
 		user, start.Format("2006-01-02"), end.Format("2006-01-02"), c)))
 }
 
-// UserHandler returns user information from Slack
+// UserHandler returns user information from Slack (with database caching)
 func (h *APIHandlers) UserHandler(w http.ResponseWriter, r *http.Request) {
 	h.logger.Debug().Str("handler", "user").Str("method", r.Method).Str("path", r.URL.Path).Msg("request received")
 
@@ -97,17 +97,52 @@ func (h *APIHandlers) UserHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "user required", http.StatusBadRequest)
 		return
 	}
+
+	var realName, profileImage string
+
+	// Try Slack API first to get fresh data
 	user, err := h.slackClient.GetUserInfo(userID)
 	if err != nil {
-		h.logger.Error().Str("handler", "user").Str("userID", userID).Err(err).Msg("slack API error")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		h.logger.Warn().Str("handler", "user").Str("userID", userID).Err(err).Msg("slack API error, checking cache")
 	}
 
-	h.logger.Info().Str("handler", "user").Str("userID", userID).Str("real_name", user.RealName).Msg("request completed")
+	// Check if we got valid data from Slack (non-empty real_name)
+	// Deactivated users may return empty real_name even on successful API call
+	if err == nil && user.RealName != "" {
+		realName = user.RealName
+		profileImage = user.Profile.Image192
+		// Cache the successful response with valid name
+		if cacheErr := h.store.SetCachedUser(userID, realName, profileImage); cacheErr != nil {
+			h.logger.Warn().Str("handler", "user").Str("userID", userID).Err(cacheErr).Msg("failed to cache user")
+		}
+	} else {
+		// Slack API failed or returned empty name - try cache
+		cached, cacheErr := h.store.GetCachedUser(userID)
+		if cacheErr != nil {
+			h.logger.Error().Str("handler", "user").Str("userID", userID).Err(cacheErr).Msg("cache lookup error")
+		}
+		if cached != nil && cached.RealName != "" {
+			h.logger.Info().Str("handler", "user").Str("userID", userID).Str("real_name", cached.RealName).Msg("returning cached user")
+			realName = cached.RealName
+			profileImage = cached.ProfileImage
+		} else if err == nil && user != nil {
+			// API succeeded but no cache - return what Slack gave us (even if empty)
+			// Also use profile image from Slack if available
+			realName = user.RealName
+			profileImage = user.Profile.Image192
+			h.logger.Warn().Str("handler", "user").Str("userID", userID).Msg("slack returned empty name, no cache available")
+		} else {
+			// No cache available and API failed, return error
+			h.logger.Error().Str("handler", "user").Str("userID", userID).Msg("user not found in Slack or cache")
+			http.Error(w, "user not found", http.StatusNotFound)
+			return
+		}
+	}
+
+	h.logger.Info().Str("handler", "user").Str("userID", userID).Str("real_name", realName).Msg("request completed")
 	response := map[string]string{
-		"real_name":     user.RealName,
-		"profile_image": user.Profile.Image192, // or Image72 for smaller, Image512 for larger
+		"real_name":     realName,
+		"profile_image": profileImage,
 	}
 	var buf bytes.Buffer
 	if err := json.NewEncoder(&buf).Encode(response); err != nil {
