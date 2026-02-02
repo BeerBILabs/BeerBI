@@ -44,5 +44,5 @@ export default async function QuarterlyRankingsPage({ params }: PageProps) {
     notFound();
   }
 
-  return <QuarterlyLeaderboard year={yearNum} quarter={quarterNum} showRankChange={true} />;
+  return <QuarterlyLeaderboard key={`${yearNum}-q${quarterNum}`} year={yearNum} quarter={quarterNum} showRankChange={true} />;
 }

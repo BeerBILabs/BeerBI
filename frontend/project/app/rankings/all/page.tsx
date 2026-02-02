@@ -6,5 +6,5 @@ export const metadata: Metadata = {
 };
 
 export default function AllTimeRankingsPage() {
-  return <QuarterlyLeaderboard year={null} quarter={null} showRankChange={false} />;
+  return <QuarterlyLeaderboard key="all-time" year={null} quarter={null} showRankChange={false} />;
 }

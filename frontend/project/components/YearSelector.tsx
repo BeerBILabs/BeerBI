@@ -22,13 +22,14 @@ export function YearSelector({
       value={selectedYear}
       onChange={(e) => onChange(parseInt(e.target.value, 10))}
       disabled={disabled}
-      className={`px-3 py-1.5 rounded-md text-sm font-medium border cursor-pointer ${
+      className={`px-3 py-1.5 pr-8 rounded-md text-sm font-medium cursor-pointer ${
         disabled ? "opacity-50 cursor-not-allowed" : ""
       }`}
       style={{
         backgroundColor: "hsl(var(--card))",
         color: "hsl(var(--card-foreground))",
-        borderColor: "hsl(var(--border))",
+        border: "none",
+        outline: "none",
       }}
       aria-label="Select year"
     >
