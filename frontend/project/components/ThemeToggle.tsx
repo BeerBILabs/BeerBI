@@ -48,7 +48,6 @@ export default function ThemeToggle() {
       >
         <span
           className="relative w-4 h-4 transition-transform duration-200"
-          style={{ transform: isDark ? 'rotate(0deg)' : 'rotate(180deg)' }}
         >
           {isDark ? (
             <Sun size={16} className="absolute inset-0" />
