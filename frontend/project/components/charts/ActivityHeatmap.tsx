@@ -175,7 +175,7 @@ export function ActivityHeatmap({ startDate, endDate }: ActivityHeatmapProps) {
         <div className="overflow-x-auto">
           <div className="inline-flex gap-1">
           {/* Day labels */}
-          <div className="flex flex-col gap-[3px] mr-1 text-xs" style={{ color: "hsl(var(--foreground))" }}>
+          <div className="flex flex-col mr-1 text-xs" style={{ color: "hsl(var(--foreground))", gap: cellGap }}>
             {dayLabels.map((day, i) => (
               <div
                 key={day}
@@ -188,9 +188,9 @@ export function ActivityHeatmap({ startDate, endDate }: ActivityHeatmapProps) {
           </div>
 
           {/* Heatmap grid */}
-          <div className="flex gap-[3px]">
+          <div className="flex" style={{ gap: cellGap }}>
             {weeks.map((week) => (
-              <div key={week} className="flex flex-col gap-[3px]">
+              <div key={week} className="flex flex-col" style={{ gap: cellGap }}>
                 {[0, 1, 2, 3, 4, 5, 6].map((dayOfWeek) => {
                   const cell = grid.find((g) => g.week === week && g.dayOfWeek === dayOfWeek);
                   if (!cell) {

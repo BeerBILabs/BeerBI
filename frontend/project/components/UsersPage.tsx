@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import type { ReactElement } from 'react'
-import Link from 'next/link'
 import { Leaderboard } from './Leaderboard'
 import DateRangePicker from './DateRangePicker'
 
@@ -94,7 +93,7 @@ export default function UsersPage(): ReactElement {
           {quickRanges.map(q => (
             <button
               key={q.label}
-              className="px-3 py-1 rounded text-sm font-medium border transition-colors duration-150 shadow-sm"
+              className="px-3 py-1 rounded text-sm font-medium border transition-colors duration-150 shadow-sm cursor-pointer"
               style={{
                 backgroundColor: 'hsl(var(--secondary))',
                 color: 'hsl(var(--secondary-foreground))',
@@ -122,31 +121,6 @@ export default function UsersPage(): ReactElement {
           showRankChange={false}
           maxHeight=""
         />
-      </div>
-
-      <div className="flex justify-center gap-4 mt-8">
-        <Link
-          href="/analytics"
-          className="px-4 py-2 rounded-md text-sm font-semibold transition-colors border"
-          style={{
-            backgroundColor: 'hsl(var(--primary))',
-            color: 'hsl(var(--primary-foreground))',
-            borderColor: 'hsl(var(--border))',
-          }}
-        >
-          View Analytics
-        </Link>
-        <Link
-          href="/rankings"
-          className="px-4 py-2 rounded-md text-sm font-semibold transition-colors border"
-          style={{
-            backgroundColor: 'hsl(var(--secondary))',
-            color: 'hsl(var(--secondary-foreground))',
-            borderColor: 'hsl(var(--border))',
-          }}
-        >
-          Explore Quarterly Rankings
-        </Link>
       </div>
     </section>
   )

@@ -56,10 +56,9 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
         <ThemeProvider />
         <header className="w-full surface-inverse border-b bordered shadow-sm sticky top-0 z-30">
           <div className="max-w-5xl mx-auto flex items-center gap-4 px-8 py-4">
-            <Logo className="h-10 w-auto" />
+            <Link href="/"><Logo className="h-10 w-auto" /></Link>
             <span className="ml-auto text-base font-medium tracking-tight"><Link href="/">Leaderboard</Link></span>
             <Link href="/analytics" className="text-base font-medium tracking-tight hover:opacity-80 transition-opacity">Analytics</Link>
-            <Link href="/rankings" className="text-base font-medium tracking-tight hover:opacity-80 transition-opacity">Rankings</Link>
             <ThemeToggle />
           </div>
         </header>

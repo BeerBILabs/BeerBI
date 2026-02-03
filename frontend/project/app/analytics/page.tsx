@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import DateRangePicker from "@/components/DateRangePicker";
 import {
   ActivityChart,
@@ -143,20 +142,6 @@ export default function AnalyticsPage() {
 
           {/* Quarterly Comparison - Full Width */}
           <QuarterlyChart />
-        </div>
-
-        {/* Footer */}
-        <div className="mt-8 text-center">
-          <Link
-            href="/rankings"
-            className="px-4 py-2 rounded-md text-sm font-semibold transition-colors inline-block"
-            style={{
-              backgroundColor: "hsl(var(--primary))",
-              color: "hsl(var(--primary-foreground))",
-            }}
-          >
-            View Quarterly Rankings
-          </Link>
         </div>
       </div>
     </main>
