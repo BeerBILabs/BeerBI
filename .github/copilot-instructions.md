@@ -1,4 +1,6 @@
-# AI Assistant Instructions — BeerBot
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Overview
 
@@ -6,47 +8,109 @@ Monorepo for BeerBot — a Slack bot that tracks team appreciation through virtu
 
 | Component | Path | Tech Stack |
 |-----------|------|------------|
-| Backend | `backend/bot/` | Go, SQLite, Slack Socket Mode |
-| Frontend | `frontend/project/` | Next.js (App Router), React, Tailwind, Bun |
+| Backend | `backend/bot/` | Go 1.25, SQLite, Slack Socket Mode, zerolog |
+| Frontend | `frontend/project/` | Next.js 16 (App Router), React 19, Tailwind 4, Recharts, Bun |
 
-## Quick Commands (using Just)
+## Commands
 
-All commands run from the repo root. Install [just](https://github.com/casey/just) first.
+All commands use [just](https://github.com/casey/just) from the repo root:
 
 ```bash
-just              # List all available commands
-just dev          # Start dev environment (hot reload)
-just dev-logs     # View all logs (tailing!)
-just dev-down     # Stop dev environment
-just test         # Run tests
-just clean        # Remove containers and volumes
+just dev              # Start dev environment (Docker, hot reload)
+just dev-down         # Stop dev environment
+just dev-restart      # Restart services
+just test             # Run all tests via Docker (compose.test.yaml)
+just dev-logs         # Tail all logs
+just dev-logs-backend # Backend logs only
+just dev-logs-frontend # Frontend logs only
+just shell-backend    # Shell into backend container
+just shell-frontend   # Shell into frontend container
+just status           # Show running services
+just clean            # Remove containers and volumes
 ```
 
-**Other useful commands:**
-- `just dev-logs-backend` / `just dev-logs-frontend` — component-specific logs
-- `just shell-backend` / `just shell-frontend` — shell into containers
-- `just prod` — start production environment
-- `just status` — show running services
+Run backend tests locally (outside Docker):
+```bash
+cd backend/bot && go test ./...
+```
 
-## Key Files
+## Architecture
 
-**Backend (`backend/bot/`):**
-- `main.go` — Entry point, HTTP server, Slack event routing
-- `store.go` — SQLite migrations, queries, `user_cache` table, deduplication via `processed_events`
-- `events.go` — Slack event processing, beer detection, mention parsing
-- `handlers.go` — REST API handlers (`/api/givers`, `/api/recipients`, `/api/user`, etc.)
-- `middleware.go` — Auth middleware (Bearer token validation)
+### Data Flow
 
-**Frontend (`frontend/project/`):**
-- `app/api/proxy/[...path]/route.ts` — Proxy to backend, injects `API_TOKEN`
-- `components/UsersList.tsx` — User display with localStorage caching
-- `components/UsersPage.tsx` — Main leaderboard page
-- `app/globals.css` — Theme variables and styles
+```
+Slack message → Socket Mode → EventProcessor (events.go)
+  → Detect beer emoji → Parse @mentions → Check daily limit
+  → TryMarkEventProcessed() for deduplication
+  → Store in SQLite (beers table)
 
-**Config:**
-- `compose.dev.yaml` — Development Docker Compose
-- `compose.yaml` — Production Docker Compose
-- `.env` — Environment variables (Slack tokens, etc.)
+Frontend page → /api/proxy/[...path] (Next.js server-side)
+  → Injects Authorization: Bearer {API_TOKEN}
+  → Backend REST handler → SQLite query → JSON response
+```
+
+The frontend never talks to the backend directly from the browser. All requests route through the Next.js proxy at `app/api/proxy/[...path]/route.ts`, which injects the `API_TOKEN` server-side.
+
+### Backend (`backend/bot/`)
+
+Single Go binary with these layers:
+- **main.go** — HTTP server setup, Slack Socket Mode connection, route registration, graceful shutdown
+- **events.go** — `EventProcessor`: beer emoji detection, mention parsing (`<@([A-Z0-9]+)>`), daily limit enforcement (default 10/user/day), self-gift prevention
+- **store.go** — SQLite database: schema migrations in `migrate()`, all queries. Tables: `beers`, `processed_events`, `user_cache`, `emoji_counts`
+- **handlers.go** — REST API endpoints (see below)
+- **slack.go** — `SlackConnectionManager`: auto-reconnect with exponential backoff, health monitoring every 30s
+- **middleware.go** — Bearer token auth (constant-time comparison)
+
+### API Endpoints
+
+| Endpoint | Auth | Purpose |
+|----------|------|---------|
+| `GET /api/given?user=&start=&end=` | Yes | Beers given by user in date range |
+| `GET /api/received?user=&start=&end=` | Yes | Beers received by user in date range |
+| `GET /api/user?user=` | Yes | Slack user info (with cache fallback) |
+| `GET /api/givers` | No | All giver IDs |
+| `GET /api/recipients` | No | All recipient IDs |
+| `GET /api/stats/timeline?start=&end=&granularity=` | Yes | Activity timeline (day/week/month) |
+| `GET /api/stats/quarterly?start_year=&end_year=` | Yes | Quarterly aggregation |
+| `GET /api/stats/top?start=&end=&limit=` | Yes | Top givers/recipients |
+| `GET /api/stats/heatmap?start=&end=` | Yes | Calendar heatmap data |
+| `GET /api/stats/pairs?start=&end=&limit=` | Yes | Giver→recipient network data |
+| `GET /api/health` | No | Health check |
+| `GET /healthz` | No | Docker healthcheck |
+| `GET /metrics` | No | Prometheus metrics |
+
+### Frontend (`frontend/project/`)
+
+Three main pages:
+- `/` — Leaderboard (`UsersPage.tsx` → `Leaderboard.tsx`) with date range filters
+- `/analytics` — Dashboard with timeline, top users, heatmap, network graph, quarterly charts
+- `/rankings` / `/rankings/all` / `/rankings/[year]/[quarter]` — Quarterly rankings with rank change indicators
+
+Chart components live in `components/charts/`. Shared utilities in `lib/` (userCache, quarters, chartTheme).
+
+### Theme System
+
+`app/globals.css` defines HSL CSS custom properties for light/dark modes. Beer-themed golden accent (`#d4a84b`). Theme is stored in a cookie (read server-side in layout.tsx to prevent FOUC). All color references should use the CSS variables (e.g., `hsl(var(--primary))`), not hardcoded values.
+
+## Important Patterns
+
+### Event Deduplication
+Always mark events as processed BEFORE side-effects:
+```go
+ok, err := store.TryMarkEventProcessed(eventID, ts)
+if !ok { return } // Already processed
+// Now safe to process
+```
+
+### User Caching (two layers)
+- **Backend:** `user_cache` SQLite table — survives restarts, allows showing deactivated Slack users
+- **Frontend:** localStorage with 7-day TTL (`lib/userCache.ts`) — reduces API calls, enables offline viewing of previously loaded data
+
+### Database Migrations
+`store.go` → `migrate()` runs on startup. Schema changes must be additive/non-destructive and added to the migration function.
+
+### Frontend Data Fetching
+Components fetch via `/api/proxy/{endpoint}`. The `Leaderboard.tsx` component uses a 5-concurrent-worker pattern for parallel user stat requests.
 
 ## Environment Variables
 
@@ -61,50 +125,14 @@ just clean        # Remove containers and volumes
 - `NEXT_PUBLIC_BACKEND_BASE` — Backend URL (e.g., `http://backend-dev:8080`)
 - `API_TOKEN` — Token for backend API calls (server-side only, no `NEXT_PUBLIC_` prefix)
 
-## Important Patterns
-
-### Event Deduplication
-Backend uses `processed_events` table with `INSERT OR IGNORE`. Always mark events as processed BEFORE side-effects:
-```go
-ok, err := store.TryMarkEventProcessed(eventID, ts)
-if !ok { return } // Already processed
-// Now safe to process
-```
-
-### User Caching
-- **Backend:** `user_cache` table stores Slack user ID → name/avatar mapping
-- **Frontend:** localStorage cache with 7-day TTL
-- Purpose: Show names for deactivated Slack users
-
-### Database Migrations
-`store.go` runs migrations on startup. Schema changes need migration logic in `migrate()`.
-
 ## Testing
 
-```bash
-just test                    # Run all tests via Docker
-cd backend/bot && go test ./...  # Run backend tests locally
-```
+Backend tests use temporary SQLite files (cleaned up with `defer os.Remove()`). Test files are in `backend/bot/*_test.go`. The frontend is validated via build in `compose.test.yaml`.
 
-## Debugging
-
-1. Check logs: `just dev-logs`
-2. Backend shell: `just shell-backend`
-3. Frontend shell: `just shell-frontend`
-4. Reset DB: `rm backend/bot/data/bot.db && just dev-restart`
-
-## Slack Setup
-
-1. Create app at https://api.slack.com/apps
-2. Enable Socket Mode
-3. Bot Token Scopes: `channels:history`, `groups:history`, `im:history`, `mpim:history`, `users:read`, `chat:write`
-4. App-Level Token: `connections:write` scope
-5. Invite bot to channels to track
-
-## Guidelines for AI Assistants
+## Guidelines
 
 - Run `just test` before proposing behavior changes
 - Preserve deduplication semantics when modifying event handling
-- Add tests for new functionality in `backend/bot/*_test.go`
-- Frontend uses HSL CSS variables for theming — maintain consistency
+- Add tests for new backend functionality in `backend/bot/*_test.go`
+- Use HSL CSS variables for all colors — never hardcode color values
 - Keep PRs focused: one feature/fix per change
