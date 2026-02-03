@@ -197,6 +197,16 @@ func (ep *EventProcessor) handleMessageEvent(ev *slackevents.MessageEvent, envel
 			ep.logger.Error().Err(err).Str("giver", ev.User).Str("recipient", recipient).Int("count", count).Msg("failed to add beer")
 		} else {
 			ep.logger.Info().Str("giver", ev.User).Str("recipient", recipient).Int("count", count).Msg("beer given")
+			// Post confirmation message to channel
+			var message string
+			if count == 1 {
+				message = fmt.Sprintf("<@%s> gave 1 beer to <@%s>!", ev.User, recipient)
+			} else {
+				message = fmt.Sprintf("<@%s> gave %d beers to <@%s>!", ev.User, count, recipient)
+			}
+			if _, _, err := client.PostMessage(ev.Channel, slack.MsgOptionText(message, false)); err != nil {
+				ep.logger.Error().Err(err).Str("channel", ev.Channel).Msg("failed to post beer confirmation message")
+			}
 		}
 	}
 	// event was pre-marked via TryMarkEventProcessed
