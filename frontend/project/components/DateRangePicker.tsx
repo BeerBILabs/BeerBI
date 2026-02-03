@@ -20,7 +20,7 @@ export default function DateRangePicker({ start, end, onChange }: DateRangePicke
 
   return (
     <div
-      className="flex items-center gap-3 rounded-lg px-3 py-2 shadow-sm border"
+      className="flex flex-wrap items-center gap-2 sm:gap-3 rounded-lg px-3 py-2 shadow-sm border w-full max-w-full"
       style={inputStyle}
     >
       <DatePicker
@@ -33,9 +33,10 @@ export default function DateRangePicker({ start, end, onChange }: DateRangePicke
         selectsStart
         startDate={start ? new Date(start) : null}
         endDate={end ? new Date(end) : null}
-        className="rounded px-2 py-1"
-        wrapperClassName="date-picker-wrapper"
+        className="rounded px-2 py-1 cursor-pointer w-full min-w-0 text-sm"
+        wrapperClassName="date-picker-wrapper flex-1 min-w-[100px]"
         calendarClassName="rounded-lg shadow-lg"
+        name="date-from"
       />
       <span className="font-bold" style={{ color: 'hsl(var(--muted-foreground))' }}>to</span>
       <DatePicker
@@ -48,9 +49,10 @@ export default function DateRangePicker({ start, end, onChange }: DateRangePicke
         selectsEnd
         startDate={start ? new Date(start) : null}
         endDate={end ? new Date(end) : null}
-        className="rounded px-2 py-1"
-        wrapperClassName="date-picker-wrapper"
+        className="rounded px-2 py-1 cursor-pointer w-full min-w-0 text-sm"
+        wrapperClassName="date-picker-wrapper flex-1 min-w-[100px]"
         calendarClassName="rounded-lg shadow-lg"
+        name="date-to"
       />
     </div>
   );

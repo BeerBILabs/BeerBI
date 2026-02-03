@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -233,5 +234,193 @@ func (h *APIHandlers) HealthHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(statusCode)
+	_, _ = w.Write(buf.Bytes())
+}
+
+// ============================================================================
+// Stats Handlers for Analytics/BI Features
+// ============================================================================
+
+// TimelineHandler returns aggregated beer counts over time
+// Query params: start, end (YYYY-MM-DD), granularity (day|week|month)
+func (h *APIHandlers) TimelineHandler(w http.ResponseWriter, r *http.Request) {
+	h.logger.Info().Str("handler", "timeline").Str("method", r.Method).Str("path", r.URL.Path).Str("query", r.URL.RawQuery).Msg("request received")
+
+	start, end, err := parseDateRangeFromParams(r)
+	if err != nil {
+		h.logger.Warn().Str("handler", "timeline").Err(err).Msg("invalid date range")
+		http.Error(w, "invalid or missing date range: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	granularity := r.URL.Query().Get("granularity")
+	if granularity == "" {
+		granularity = "day"
+	}
+	if granularity != "day" && granularity != "week" && granularity != "month" {
+		http.Error(w, "granularity must be day, week, or month", http.StatusBadRequest)
+		return
+	}
+
+	data, err := h.store.GetTimelineStats(start, end, granularity)
+	if err != nil {
+		h.logger.Error().Str("handler", "timeline").Err(err).Msg("database error")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info().Str("handler", "timeline").Int("points", len(data)).Str("granularity", granularity).Msg("request completed")
+	w.Header().Set("Content-Type", "application/json")
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(data); err != nil {
+		h.logger.Error().Str("handler", "timeline").Err(err).Msg("failed to encode response")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_, _ = w.Write(buf.Bytes())
+}
+
+// QuarterlyHandler returns beer counts aggregated by quarter
+// Query params: start_year, end_year (integers)
+func (h *APIHandlers) QuarterlyHandler(w http.ResponseWriter, r *http.Request) {
+	h.logger.Info().Str("handler", "quarterly").Str("method", r.Method).Str("path", r.URL.Path).Str("query", r.URL.RawQuery).Msg("request received")
+
+	startYearStr := r.URL.Query().Get("start_year")
+	endYearStr := r.URL.Query().Get("end_year")
+
+	currentYear := time.Now().Year()
+	startYear := currentYear - 2
+	endYear := currentYear
+
+	if startYearStr != "" {
+		if v, err := strconv.Atoi(startYearStr); err == nil {
+			startYear = v
+		}
+	}
+	if endYearStr != "" {
+		if v, err := strconv.Atoi(endYearStr); err == nil {
+			endYear = v
+		}
+	}
+
+	data, err := h.store.GetQuarterlyStats(startYear, endYear)
+	if err != nil {
+		h.logger.Error().Str("handler", "quarterly").Err(err).Msg("database error")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info().Str("handler", "quarterly").Int("quarters", len(data)).Msg("request completed")
+	w.Header().Set("Content-Type", "application/json")
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(data); err != nil {
+		h.logger.Error().Str("handler", "quarterly").Err(err).Msg("failed to encode response")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_, _ = w.Write(buf.Bytes())
+}
+
+// TopUsersHandler returns top N givers and recipients
+// Query params: start, end (YYYY-MM-DD), limit (default 20)
+func (h *APIHandlers) TopUsersHandler(w http.ResponseWriter, r *http.Request) {
+	h.logger.Info().Str("handler", "top").Str("method", r.Method).Str("path", r.URL.Path).Str("query", r.URL.RawQuery).Msg("request received")
+
+	start, end, err := parseDateRangeFromParams(r)
+	if err != nil {
+		h.logger.Warn().Str("handler", "top").Err(err).Msg("invalid date range")
+		http.Error(w, "invalid or missing date range: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	limit := 20
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if v, err := strconv.Atoi(limitStr); err == nil && v > 0 && v <= 100 {
+			limit = v
+		}
+	}
+
+	data, err := h.store.GetTopUsers(start, end, limit)
+	if err != nil {
+		h.logger.Error().Str("handler", "top").Err(err).Msg("database error")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info().Str("handler", "top").Int("givers", len(data.Givers)).Int("recipients", len(data.Recipients)).Msg("request completed")
+	w.Header().Set("Content-Type", "application/json")
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(data); err != nil {
+		h.logger.Error().Str("handler", "top").Err(err).Msg("failed to encode response")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_, _ = w.Write(buf.Bytes())
+}
+
+// HeatmapHandler returns daily beer counts for calendar heatmap
+// Query params: start, end (YYYY-MM-DD)
+func (h *APIHandlers) HeatmapHandler(w http.ResponseWriter, r *http.Request) {
+	h.logger.Info().Str("handler", "heatmap").Str("method", r.Method).Str("path", r.URL.Path).Str("query", r.URL.RawQuery).Msg("request received")
+
+	start, end, err := parseDateRangeFromParams(r)
+	if err != nil {
+		h.logger.Warn().Str("handler", "heatmap").Err(err).Msg("invalid date range")
+		http.Error(w, "invalid or missing date range: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	data, err := h.store.GetHeatmapStats(start, end)
+	if err != nil {
+		h.logger.Error().Str("handler", "heatmap").Err(err).Msg("database error")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info().Str("handler", "heatmap").Int("days", len(data)).Msg("request completed")
+	w.Header().Set("Content-Type", "application/json")
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(data); err != nil {
+		h.logger.Error().Str("handler", "heatmap").Err(err).Msg("failed to encode response")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	_, _ = w.Write(buf.Bytes())
+}
+
+// PairsHandler returns giver→recipient pairs for network visualization
+// Query params: start, end (YYYY-MM-DD), limit (default 30)
+func (h *APIHandlers) PairsHandler(w http.ResponseWriter, r *http.Request) {
+	h.logger.Info().Str("handler", "pairs").Str("method", r.Method).Str("path", r.URL.Path).Str("query", r.URL.RawQuery).Msg("request received")
+
+	start, end, err := parseDateRangeFromParams(r)
+	if err != nil {
+		h.logger.Warn().Str("handler", "pairs").Err(err).Msg("invalid date range")
+		http.Error(w, "invalid or missing date range: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	limit := 30
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if v, err := strconv.Atoi(limitStr); err == nil && v > 0 && v <= 100 {
+			limit = v
+		}
+	}
+
+	data, err := h.store.GetPairStats(start, end, limit)
+	if err != nil {
+		h.logger.Error().Str("handler", "pairs").Err(err).Msg("database error")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	h.logger.Info().Str("handler", "pairs").Int("pairs", len(data)).Msg("request completed")
+	w.Header().Set("Content-Type", "application/json")
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(data); err != nil {
+		h.logger.Error().Str("handler", "pairs").Err(err).Msg("failed to encode response")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 	_, _ = w.Write(buf.Bytes())
 }

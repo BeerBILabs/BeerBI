@@ -120,6 +120,13 @@ func main() {
 	mux.Handle("/api/recipients", http.HandlerFunc(handlers.RecipientsHandler))
 	mux.HandleFunc("/api/health", handlers.HealthHandler)
 
+	// Stats/Analytics endpoints (auth required)
+	mux.Handle("/api/stats/timeline", authMiddleware(*apiToken, zlogger, http.HandlerFunc(handlers.TimelineHandler)))
+	mux.Handle("/api/stats/quarterly", authMiddleware(*apiToken, zlogger, http.HandlerFunc(handlers.QuarterlyHandler)))
+	mux.Handle("/api/stats/top", authMiddleware(*apiToken, zlogger, http.HandlerFunc(handlers.TopUsersHandler)))
+	mux.Handle("/api/stats/heatmap", authMiddleware(*apiToken, zlogger, http.HandlerFunc(handlers.HeatmapHandler)))
+	mux.Handle("/api/stats/pairs", authMiddleware(*apiToken, zlogger, http.HandlerFunc(handlers.PairsHandler)))
+
 	srv := &http.Server{Addr: *addr, Handler: mux}
 	go func() {
 		zlogger.Info().Str("addr", *addr).Msg("HTTP server listening")

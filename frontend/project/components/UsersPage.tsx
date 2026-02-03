@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import type { ReactElement } from 'react'
-import Link from 'next/link'
 import { Leaderboard } from './Leaderboard'
 import DateRangePicker from './DateRangePicker'
 
@@ -78,10 +77,10 @@ export default function UsersPage(): ReactElement {
   return (
     <section>
       <h1
-        className="text-3xl font-extrabold mb-2 tracking-tight flex items-center gap-2"
+        className="text-3xl font-extrabold mb-2 tracking-tight"
         style={{ color: 'hsl(var(--primary))' }}
       >
-        <span>🍺</span> BeerBot Leaderboard
+        BeerBot Leaderboard
       </h1>
       <p className="mb-6 text-base" style={{ color: 'hsl(var(--muted-foreground))' }}>
         See who's giving and receiving the most{' '}
@@ -94,7 +93,7 @@ export default function UsersPage(): ReactElement {
           {quickRanges.map(q => (
             <button
               key={q.label}
-              className="px-3 py-1 rounded text-sm font-medium border transition-colors duration-150 shadow-sm"
+              className="px-3 py-1 rounded text-sm font-medium border transition-colors duration-150 shadow-sm cursor-pointer"
               style={{
                 backgroundColor: 'hsl(var(--secondary))',
                 color: 'hsl(var(--secondary-foreground))',
@@ -122,19 +121,6 @@ export default function UsersPage(): ReactElement {
           showRankChange={false}
           maxHeight=""
         />
-      </div>
-
-      <div className="flex justify-center mt-8">
-        <Link
-          href="/rankings"
-          className="px-4 py-2 rounded-md text-sm font-semibold transition-colors"
-          style={{
-            backgroundColor: 'hsl(var(--primary))',
-            color: 'hsl(var(--primary-foreground))',
-          }}
-        >
-          Explore Quarterly Rankings
-        </Link>
       </div>
     </section>
   )
