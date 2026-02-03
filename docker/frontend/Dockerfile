@@ -44,6 +44,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends wget curl ca-ce
 
 # Set environment variables from build arguments
 ENV NEXT_TELEMETRY_DISABLED=1
+ENV HOSTNAME=0.0.0.0
 
 # Healthcheck and run the app
 USER bun
