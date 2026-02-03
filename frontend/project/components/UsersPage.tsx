@@ -4,16 +4,9 @@ import { useState } from 'react'
 import type { ReactElement } from 'react'
 import { Leaderboard } from './Leaderboard'
 import DateRangePicker from './DateRangePicker'
+import { formatLocalDate } from '@/lib/dateUtils'
 
 type DateRange = { start: string; end: string }
-
-// Format date as YYYY-MM-DD in local timezone (avoids UTC conversion issues)
-function formatLocalDate(d: Date): string {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-}
 
 const quickRanges: Array<{ label: string; get: () => DateRange }> = [
   {

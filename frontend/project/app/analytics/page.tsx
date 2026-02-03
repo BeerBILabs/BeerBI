@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import DateRangePicker from "@/components/DateRangePicker";
+import { formatLocalDate } from "@/lib/dateUtils";
 import {
   ActivityChart,
   LeaderboardChart,
@@ -9,13 +10,6 @@ import {
   ActivityHeatmap,
   NetworkChart,
 } from "@/components/charts";
-
-function formatLocalDate(d: Date): string {
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
 
 export default function AnalyticsPage() {
   const now = new Date();
@@ -29,32 +23,40 @@ export default function AnalyticsPage() {
   const quickRanges = [
     {
       label: "This Year",
-      get: () => ({
-        start: formatLocalDate(new Date(now.getFullYear(), 0, 1)),
-        end: formatLocalDate(now),
-      }),
+      get: () => {
+        const today = new Date();
+        return {
+          start: formatLocalDate(new Date(today.getFullYear(), 0, 1)),
+          end: formatLocalDate(today),
+        };
+      },
     },
     {
       label: "Last Year",
-      get: () => ({
-        start: formatLocalDate(new Date(now.getFullYear() - 1, 0, 1)),
-        end: formatLocalDate(new Date(now.getFullYear() - 1, 11, 31)),
-      }),
+      get: () => {
+        const today = new Date();
+        return {
+          start: formatLocalDate(new Date(today.getFullYear() - 1, 0, 1)),
+          end: formatLocalDate(new Date(today.getFullYear() - 1, 11, 31)),
+        };
+      },
     },
     {
       label: "Last 6 Months",
       get: () => {
+        const today = new Date();
         const d = new Date();
         d.setMonth(d.getMonth() - 6);
-        return { start: formatLocalDate(d), end: formatLocalDate(now) };
+        return { start: formatLocalDate(d), end: formatLocalDate(today) };
       },
     },
     {
       label: "Last 3 Months",
       get: () => {
+        const today = new Date();
         const d = new Date();
         d.setMonth(d.getMonth() - 3);
-        return { start: formatLocalDate(d), end: formatLocalDate(now) };
+        return { start: formatLocalDate(d), end: formatLocalDate(today) };
       },
     },
   ];
@@ -91,6 +93,7 @@ export default function AnalyticsPage() {
               {quickRanges.map((q) => (
                 <button
                   key={q.label}
+                  type="button"
                   className="px-3 py-1.5 rounded text-sm font-medium border transition-colors"
                   style={{
                     backgroundColor: "hsl(var(--secondary))",

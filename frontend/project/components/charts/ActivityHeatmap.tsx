@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo, useCallback } from "react";
 import { ChartContainer } from "./ChartContainer";
 import { defaultChartColors } from "@/lib/chartTheme";
+import { generateDateRange, parseLocalDate } from "@/lib/dateUtils";
 
 interface TooltipState {
   visible: boolean;
@@ -27,26 +28,15 @@ function getDayOfWeek(dateStr: string): number {
   return new Date(dateStr).getDay();
 }
 
-// Get week number within the year
-function getWeekNumber(dateStr: string): number {
-  const date = new Date(dateStr);
+// Get week key with year prefix to avoid collisions across years
+function getWeekKey(dateStr: string): string {
+  const date = parseLocalDate(dateStr);
   const startOfYear = new Date(date.getFullYear(), 0, 1);
   const days = Math.floor((date.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000));
-  return Math.floor((days + startOfYear.getDay()) / 7);
+  const week = Math.floor((days + startOfYear.getDay()) / 7);
+  return `${date.getFullYear()}-W${week}`;
 }
 
-// Generate all dates between start and end
-function generateDateRange(start: string, end: string): string[] {
-  const dates: string[] = [];
-  const current = new Date(start);
-  const endDate = new Date(end);
-  
-  while (current <= endDate) {
-    dates.push(current.toISOString().split("T")[0]);
-    current.setDate(current.getDate() + 1);
-  }
-  return dates;
-}
 
 export function ActivityHeatmap({ startDate, endDate }: ActivityHeatmapProps) {
   const [data, setData] = useState<HeatmapPoint[]>([]);
@@ -109,20 +99,20 @@ export function ActivityHeatmap({ startDate, endDate }: ActivityHeatmapProps) {
     });
 
     const allDates = generateDateRange(startDate, endDate);
-    const weekSet = new Set<number>();
+    const weekSet = new Set<string>();
     
     const gridData = allDates.map((date) => {
-      const week = getWeekNumber(date);
-      weekSet.add(week);
+      const weekKey = getWeekKey(date);
+      weekSet.add(weekKey);
       return {
         date,
         count: countMap.get(date) || 0,
         dayOfWeek: getDayOfWeek(date),
-        week,
+        weekKey,
       };
     });
 
-    return { grid: gridData, maxCount: max, weeks: Array.from(weekSet).sort((a, b) => a - b) };
+    return { grid: gridData, maxCount: max, weeks: Array.from(weekSet).sort() };
   }, [data, startDate, endDate]);
 
   // Get color intensity based on count
@@ -189,10 +179,10 @@ export function ActivityHeatmap({ startDate, endDate }: ActivityHeatmapProps) {
 
           {/* Heatmap grid */}
           <div className="flex" style={{ gap: cellGap }}>
-            {weeks.map((week) => (
-              <div key={week} className="flex flex-col" style={{ gap: cellGap }}>
+            {weeks.map((weekKey) => (
+              <div key={weekKey} className="flex flex-col" style={{ gap: cellGap }}>
                 {[0, 1, 2, 3, 4, 5, 6].map((dayOfWeek) => {
-                  const cell = grid.find((g) => g.week === week && g.dayOfWeek === dayOfWeek);
+                  const cell = grid.find((g) => g.weekKey === weekKey && g.dayOfWeek === dayOfWeek);
                   if (!cell) {
                     return (
                       <div
