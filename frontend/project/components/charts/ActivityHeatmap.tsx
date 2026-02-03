@@ -25,7 +25,7 @@ interface ActivityHeatmapProps {
 
 // Get day of week (0 = Sunday, 6 = Saturday)
 function getDayOfWeek(dateStr: string): number {
-  return new Date(dateStr).getDay();
+  return parseLocalDate(dateStr).getDay();
 }
 
 // Get week key with year prefix to avoid collisions across years
@@ -149,7 +149,7 @@ export function ActivityHeatmap({ startDate, endDate }: ActivityHeatmapProps) {
             }}
           >
             <div className="font-semibold">
-              {new Date(tooltip.date).toLocaleDateString("de-DE", {
+              {parseLocalDate(tooltip.date).toLocaleDateString("en-US", {
                 weekday: "short",
                 day: "numeric",
                 month: "short",

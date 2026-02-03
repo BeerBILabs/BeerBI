@@ -2,6 +2,8 @@
  * Chart theme utilities for Recharts integration with CSS custom properties
  */
 
+import { parseLocalDate } from './dateUtils';
+
 // Helper to get computed CSS variable value
 function getCSSVariable(name: string): string {
   if (typeof window === 'undefined') return '';
@@ -119,6 +121,6 @@ export function formatDate(dateStr: string, granularity: 'day' | 'week' | 'month
     return dateStr.replace('-W', ' W');
   }
   // Day format: "Jan 15"
-  const date = new Date(dateStr);
+  const date = parseLocalDate(dateStr);
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }

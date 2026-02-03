@@ -2,6 +2,7 @@
 import type { ReactElement } from 'react'
 import DatePicker from 'react-datepicker'
 import 'react-datepicker/dist/react-datepicker.css'
+import { parseLocalDate, formatLocalDate } from '@/lib/dateUtils'
 
 type DateRangePickerProps = {
   start?: string | null
@@ -24,15 +25,15 @@ export default function DateRangePicker({ start, end, onChange }: DateRangePicke
       style={inputStyle}
     >
       <DatePicker
-        selected={start ? new Date(start) : null}
+        selected={start ? parseLocalDate(start) : null}
         onChange={(d: Date | null) => {
           if (!d) return;
-          const s = d.toISOString().slice(0, 10);
+          const s = formatLocalDate(d);
           onChange?.(s, end || s);
         }}
         selectsStart
-        startDate={start ? new Date(start) : null}
-        endDate={end ? new Date(end) : null}
+        startDate={start ? parseLocalDate(start) : null}
+        endDate={end ? parseLocalDate(end) : null}
         className="rounded px-2 py-1 cursor-pointer w-full min-w-0 text-sm"
         wrapperClassName="date-picker-wrapper flex-1 min-w-[100px]"
         calendarClassName="rounded-lg shadow-lg"
@@ -40,15 +41,15 @@ export default function DateRangePicker({ start, end, onChange }: DateRangePicke
       />
       <span className="font-bold" style={{ color: 'hsl(var(--muted-foreground))' }}>to</span>
       <DatePicker
-        selected={end ? new Date(end) : null}
+        selected={end ? parseLocalDate(end) : null}
         onChange={(d: Date | null) => {
           if (!d) return;
-          const e = d.toISOString().slice(0, 10);
+          const e = formatLocalDate(d);
           onChange?.(start || e, e);
         }}
         selectsEnd
-        startDate={start ? new Date(start) : null}
-        endDate={end ? new Date(end) : null}
+        startDate={start ? parseLocalDate(start) : null}
+        endDate={end ? parseLocalDate(end) : null}
         className="rounded px-2 py-1 cursor-pointer w-full min-w-0 text-sm"
         wrapperClassName="date-picker-wrapper flex-1 min-w-[100px]"
         calendarClassName="rounded-lg shadow-lg"
