@@ -451,8 +451,8 @@ func (r *RedisUserCache) PopulateFromDB(ctx context.Context, store *SQLiteStore)
 	}
 
 	// Current quarter
-	quarter := (int(now.Month())-1)/3 + 1
-	quarterStart := time.Date(now.Year(), time.Month((quarter-1)*3+1), 1, 0, 0, 0, 0, now.Location())
+	quarter := getQuarterNumber(now)
+	quarterStart := time.Date(now.Year(), getQuarterStartMonth(quarter), 1, 0, 0, 0, 0, now.Location())
 	ranges[RangeCurrentQuarter] = struct{ start, end time.Time }{start: quarterStart, end: now}
 
 	// Last quarter
@@ -462,7 +462,7 @@ func (r *RedisUserCache) PopulateFromDB(ctx context.Context, store *SQLiteStore)
 		lastQuarterNum = 4
 		lastQuarterYear--
 	}
-	lastQuarterStart := time.Date(lastQuarterYear, time.Month((lastQuarterNum-1)*3+1), 1, 0, 0, 0, 0, now.Location())
+	lastQuarterStart := time.Date(lastQuarterYear, getQuarterStartMonth(lastQuarterNum), 1, 0, 0, 0, 0, now.Location())
 	lastQuarterEnd := quarterStart.AddDate(0, 0, -1)
 	ranges[RangeLastQuarter] = struct{ start, end time.Time }{start: lastQuarterStart, end: lastQuarterEnd}
 

@@ -638,8 +638,8 @@ func (h *APIHandlers) matchDateRangeToCache(start, end time.Time) string {
 	}
 
 	// Current quarter
-	quarter := (int(now.Month())-1)/3 + 1
-	quarterStart := time.Date(now.Year(), time.Month((quarter-1)*3+1), 1, 0, 0, 0, 0, now.Location())
+	quarter := getQuarterNumber(now)
+	quarterStart := time.Date(now.Year(), getQuarterStartMonth(quarter), 1, 0, 0, 0, 0, now.Location())
 	if isSameDay(start, quarterStart) && isSameDay(end, today) {
 		return RangeCurrentQuarter
 	}
@@ -651,7 +651,7 @@ func (h *APIHandlers) matchDateRangeToCache(start, end time.Time) string {
 		lastQuarterNum = 4
 		lastQuarterYear--
 	}
-	lastQuarterStart := time.Date(lastQuarterYear, time.Month((lastQuarterNum-1)*3+1), 1, 0, 0, 0, 0, now.Location())
+	lastQuarterStart := time.Date(lastQuarterYear, getQuarterStartMonth(lastQuarterNum), 1, 0, 0, 0, 0, now.Location())
 	lastQuarterEnd := quarterStart.AddDate(0, 0, -1)
 	if isSameDay(start, lastQuarterStart) && isSameDay(end, lastQuarterEnd) {
 		return RangeLastQuarter

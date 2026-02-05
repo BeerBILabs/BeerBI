@@ -68,3 +68,13 @@ func parseSlackTimestamp(ts string) (time.Time, error) {
 	}
 	return time.Unix(secs, nsec), nil
 }
+
+// getQuarterNumber returns the quarter number (1-4) for a given time
+func getQuarterNumber(t time.Time) int {
+	return (int(t.Month())-1)/3 + 1
+}
+
+// getQuarterStartMonth returns the starting month of a quarter (1, 4, 7, or 10)
+func getQuarterStartMonth(quarterNum int) time.Month {
+	return time.Month((quarterNum-1)*3 + 1)
+}
