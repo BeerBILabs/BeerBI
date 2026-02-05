@@ -505,14 +505,15 @@ func (h *APIHandlers) BatchUsersHandler(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Cap at batch size limit
-	if len(userIDs) > UserDataManager.BATCH_SIZE {
+	// Cap at batch size limit (max 100 users per request)
+	const batchSizeLimit = 100
+	if len(userIDs) > batchSizeLimit {
 		h.logger.Warn().
 			Str("handler", "batch_users").
 			Int("count", len(userIDs)).
-			Int("limit", UserDataManager.BATCH_SIZE).
+			Int("limit", batchSizeLimit).
 			Msg("too many user IDs, capping at batch size limit")
-		userIDs = userIDs[:UserDataManager.BATCH_SIZE]
+		userIDs = userIDs[:batchSizeLimit]
 	}
 
 	ctx := r.Context()
