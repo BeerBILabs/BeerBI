@@ -30,7 +30,7 @@ interface LeaderboardChartProps {
   endDate: string;
   type: "givers" | "recipients";
   limit?: number;
-  preloadedData?: Array<{ user_id: string; count: number }>;
+  preloadedData?: Array<{ userId: string; count: number }>; // Backend uses camelCase
 }
 
 export function LeaderboardChart({
@@ -53,11 +53,8 @@ export function LeaderboardChart({
         let users: TopUserStats[];
 
         if (preloadedData) {
-          // Use preloaded data
-          users = preloadedData.map((u) => ({
-            userId: u.user_id,
-            count: u.count,
-          }));
+          // Use preloaded data directly (already in correct format)
+          users = preloadedData;
         } else {
           // Fetch from API
           const params = new URLSearchParams({

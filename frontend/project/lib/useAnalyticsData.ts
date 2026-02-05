@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
 
 type TimelinePoint = {
-  period: string;
-  count: number;
+  date: string;
+  given: number;
+  received: number;
 };
 
 type TopUserStats = {
-  user_id: string;
+  userId: string; // Backend uses camelCase
   count: number;
 };
 

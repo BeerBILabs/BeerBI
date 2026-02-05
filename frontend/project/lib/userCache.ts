@@ -87,6 +87,11 @@ class UserDataManager {
    * Fetch a single user, with deduplication and caching
    */
   async getUser(userId: string): Promise<CachedUserInfo | null> {
+    // Validate userId
+    if (!userId || userId.trim() === "") {
+      return null;
+    }
+
     // Check localStorage cache first
     const cached = getCachedUser(userId);
     if (cached) {
@@ -116,10 +121,18 @@ class UserDataManager {
    */
   async getUsers(userIds: string[]): Promise<Record<string, CachedUserInfo>> {
     const results: Record<string, CachedUserInfo> = {};
+    
+    // Filter out empty, null, or undefined IDs
+    const validIds = userIds.filter((id) => id && id.trim() !== "");
+    
+    if (validIds.length === 0) {
+      return results;
+    }
+
     const missing: string[] = [];
 
     // Check cache for all users
-    for (const userId of userIds) {
+    for (const userId of validIds) {
       const cached = getCachedUser(userId);
       if (cached) {
         results[userId] = cached;

@@ -24,7 +24,7 @@ interface TimelinePoint {
 interface ActivityChartProps {
   startDate: string;
   endDate: string;
-  preloadedData?: Array<{ period: string; count: number }>;
+  preloadedData?: Array<{ date: string; given: number; received: number }>;
 }
 
 export function ActivityChart({ startDate, endDate, preloadedData }: ActivityChartProps) {
@@ -34,22 +34,19 @@ export function ActivityChart({ startDate, endDate, preloadedData }: ActivityCha
   const [granularity, setGranularity] = useState<Granularity>("day");
 
   useEffect(() => {
-    // If preloaded data is provided, use it directly
-    if (preloadedData) {
-      const transformed = preloadedData.map((p) => ({
-        date: p.period,
-        given: p.count,
-        received: p.count, // Combined data - same value for both
-      }));
-      setData(transformed);
-      setLoading(false);
-      return;
-    }
-
     async function fetchData() {
       setLoading(true);
       setError(null);
       try {
+        // If preloaded data is provided AND granularity is still "day", use it
+        if (preloadedData && granularity === "day") {
+          // Preloaded data is already in the correct format
+          setData(preloadedData);
+          setLoading(false);
+          return;
+        }
+
+        // Otherwise fetch from API (either no preloaded data, or granularity changed)
         const params = new URLSearchParams({
           start: startDate,
           end: endDate,
