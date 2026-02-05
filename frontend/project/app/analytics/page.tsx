@@ -3,6 +3,7 @@
 import { useState } from "react";
 import DateRangePicker from "@/components/DateRangePicker";
 import { formatLocalDate } from "@/lib/dateUtils";
+import { useAnalyticsData } from "@/lib/useAnalyticsData";
 import {
   ActivityChart,
   LeaderboardChart,
@@ -18,6 +19,15 @@ export default function AnalyticsPage() {
   const [range, setRange] = useState({
     start: formatLocalDate(yearStart),
     end: formatLocalDate(now),
+  });
+
+  // Fetch all analytics data with a single request
+  const { data: analyticsData, loading, error } = useAnalyticsData({
+    startDate: range.start,
+    endDate: range.end,
+    granularity: "day",
+    limit: 10,
+    pairsLimit: 15,
   });
 
   const quickRanges = [
@@ -118,33 +128,73 @@ export default function AnalyticsPage() {
 
         {/* Charts Grid */}
         <div className="space-y-6">
-          {/* Activity Timeline - Full Width */}
-          <ActivityChart startDate={range.start} endDate={range.end} />
+          {loading && (
+            <div className="text-center py-12">
+              <p style={{ color: "hsl(var(--muted-foreground))" }}>
+                Loading analytics...
+              </p>
+            </div>
+          )}
 
-          {/* Top Givers & Recipients - Side by Side */}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <LeaderboardChart
-              startDate={range.start}
-              endDate={range.end}
-              type="givers"
-              limit={10}
-            />
-            <LeaderboardChart
-              startDate={range.start}
-              endDate={range.end}
-              type="recipients"
-              limit={10}
-            />
-          </div>
+          {error && (
+            <div
+              className="p-4 rounded-lg border"
+              style={{
+                backgroundColor: "hsl(var(--destructive) / 0.1)",
+                borderColor: "hsl(var(--destructive))",
+                color: "hsl(var(--destructive))",
+              }}
+            >
+              Error loading analytics: {error}
+            </div>
+          )}
 
-          {/* Heatmap & Network Chart - Side by Side */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <ActivityHeatmap startDate={range.start} endDate={range.end} />
-            <NetworkChart startDate={range.start} endDate={range.end} limit={15} />
-          </div>
+          {analyticsData && (
+            <>
+              {/* Activity Timeline - Full Width */}
+              <ActivityChart
+                startDate={range.start}
+                endDate={range.end}
+                preloadedData={analyticsData.timeline}
+              />
 
-          {/* Quarterly Comparison - Full Width */}
-          <QuarterlyChart />
+              {/* Top Givers & Recipients - Side by Side */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <LeaderboardChart
+                  startDate={range.start}
+                  endDate={range.end}
+                  type="givers"
+                  limit={10}
+                  preloadedData={analyticsData.top_givers}
+                />
+                <LeaderboardChart
+                  startDate={range.start}
+                  endDate={range.end}
+                  type="recipients"
+                  limit={10}
+                  preloadedData={analyticsData.top_recipients}
+                />
+              </div>
+
+              {/* Heatmap & Network Chart - Side by Side */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <ActivityHeatmap
+                  startDate={range.start}
+                  endDate={range.end}
+                  preloadedData={analyticsData.heatmap}
+                />
+                <NetworkChart
+                  startDate={range.start}
+                  endDate={range.end}
+                  limit={15}
+                  preloadedData={analyticsData.pairs}
+                />
+              </div>
+
+              {/* Quarterly Comparison - Full Width */}
+              <QuarterlyChart />
+            </>
+          )}
         </div>
       </div>
     </main>

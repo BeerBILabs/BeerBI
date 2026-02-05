@@ -24,15 +24,28 @@ interface TimelinePoint {
 interface ActivityChartProps {
   startDate: string;
   endDate: string;
+  preloadedData?: Array<{ period: string; count: number }>;
 }
 
-export function ActivityChart({ startDate, endDate }: ActivityChartProps) {
+export function ActivityChart({ startDate, endDate, preloadedData }: ActivityChartProps) {
   const [data, setData] = useState<TimelinePoint[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!preloadedData);
   const [error, setError] = useState<string | null>(null);
   const [granularity, setGranularity] = useState<Granularity>("day");
 
   useEffect(() => {
+    // If preloaded data is provided, use it directly
+    if (preloadedData) {
+      const transformed = preloadedData.map((p) => ({
+        date: p.period,
+        given: p.count,
+        received: p.count, // Combined data - same value for both
+      }));
+      setData(transformed);
+      setLoading(false);
+      return;
+    }
+
     async function fetchData() {
       setLoading(true);
       setError(null);
@@ -53,7 +66,7 @@ export function ActivityChart({ startDate, endDate }: ActivityChartProps) {
       }
     }
     fetchData();
-  }, [startDate, endDate, granularity]);
+  }, [startDate, endDate, granularity, preloadedData]);
 
   const colors = defaultChartColors;
 

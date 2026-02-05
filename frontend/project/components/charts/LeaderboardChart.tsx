@@ -30,6 +30,7 @@ interface LeaderboardChartProps {
   endDate: string;
   type: "givers" | "recipients";
   limit?: number;
+  preloadedData?: Array<{ user_id: string; count: number }>;
 }
 
 export function LeaderboardChart({
@@ -37,10 +38,11 @@ export function LeaderboardChart({
   endDate,
   type,
   limit = 10,
+  preloadedData,
 }: LeaderboardChartProps) {
   const [data, setData] = useState<TopUserStats[]>([]);
   const [names, setNames] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!preloadedData);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -48,15 +50,27 @@ export function LeaderboardChart({
       setLoading(true);
       setError(null);
       try {
-        const params = new URLSearchParams({
-          start: startDate,
-          end: endDate,
-          limit: limit.toString(),
-        });
-        const resp = await fetch(`/api/proxy/stats/top?${params}`);
-        if (!resp.ok) throw new Error("Failed to fetch top users");
-        const json: TopUsersResult = await resp.json();
-        const users = type === "givers" ? json.givers : json.recipients;
+        let users: TopUserStats[];
+
+        if (preloadedData) {
+          // Use preloaded data
+          users = preloadedData.map((u) => ({
+            userId: u.user_id,
+            count: u.count,
+          }));
+        } else {
+          // Fetch from API
+          const params = new URLSearchParams({
+            start: startDate,
+            end: endDate,
+            limit: limit.toString(),
+          });
+          const resp = await fetch(`/api/proxy/stats/top?${params}`);
+          if (!resp.ok) throw new Error("Failed to fetch top users");
+          const json: TopUsersResult = await resp.json();
+          users = type === "givers" ? json.givers : json.recipients;
+        }
+
         setData(users || []);
 
         // Batch fetch user names using UserDataManager
@@ -82,7 +96,7 @@ export function LeaderboardChart({
       }
     }
     fetchData();
-  }, [startDate, endDate, type, limit]);
+  }, [startDate, endDate, type, limit, preloadedData]);
 
   const colors = defaultChartColors;
   const barColor = type === "givers" ? colors.given : colors.received;

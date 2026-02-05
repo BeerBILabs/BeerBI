@@ -15,12 +15,13 @@ interface NetworkChartProps {
   startDate: string;
   endDate: string;
   limit?: number;
+  preloadedData?: Array<{ giver: string; recipient: string; count: number }>;
 }
 
-export function NetworkChart({ startDate, endDate, limit = 20 }: NetworkChartProps) {
+export function NetworkChart({ startDate, endDate, limit = 20, preloadedData }: NetworkChartProps) {
   const [data, setData] = useState<PairStats[]>([]);
   const [names, setNames] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!preloadedData);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -28,19 +29,27 @@ export function NetworkChart({ startDate, endDate, limit = 20 }: NetworkChartPro
       setLoading(true);
       setError(null);
       try {
-        const params = new URLSearchParams({
-          start: startDate,
-          end: endDate,
-          limit: limit.toString(),
-        });
-        const resp = await fetch(`/api/proxy/stats/pairs?${params}`);
-        if (!resp.ok) throw new Error("Failed to fetch pair data");
-        const json = await resp.json();
-        setData(json || []);
+        let pairs: PairStats[];
+
+        if (preloadedData) {
+          pairs = preloadedData;
+        } else {
+          const params = new URLSearchParams({
+            start: startDate,
+            end: endDate,
+            limit: limit.toString(),
+          });
+          const resp = await fetch(`/api/proxy/stats/pairs?${params}`);
+          if (!resp.ok) throw new Error("Failed to fetch pair data");
+          const json = await resp.json();
+          pairs = json || [];
+        }
+
+        setData(pairs);
 
         // Collect all unique user IDs
         const userIds = new Set<string>();
-        (json || []).forEach((p: PairStats) => {
+        pairs.forEach((p: PairStats) => {
           userIds.add(p.giver);
           userIds.add(p.recipient);
         });
@@ -67,7 +76,7 @@ export function NetworkChart({ startDate, endDate, limit = 20 }: NetworkChartPro
       }
     }
     fetchData();
-  }, [startDate, endDate, limit]);
+  }, [startDate, endDate, limit, preloadedData]);
 
   const colors = defaultChartColors;
 
