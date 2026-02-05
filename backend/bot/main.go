@@ -159,6 +159,11 @@ func main() {
 	// Start Slack connection manager with automatic reconnection
 	slackManager.StartWithReconnection(ctx, eventProcessor.HandleEvent)
 
+	// Start Redis sync worker (if Redis is available)
+	if redisCache != nil {
+		go redisCache.StartSyncWorker(ctx, store, 5*time.Minute)
+	}
+
 	// Connection health monitor
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)

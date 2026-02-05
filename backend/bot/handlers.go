@@ -370,11 +370,34 @@ func (h *APIHandlers) TopUsersHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	data, err := h.store.GetTopUsers(start, end, limit)
-	if err != nil {
-		h.logger.Error().Str("handler", "top").Err(err).Msg("database error")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	// Try to match date range to a common cached range
+	rangeKey := h.matchDateRangeToCache(start, end)
+	var data *TopUsersResult
+
+	// Try Redis cache first for common ranges
+	if rangeKey != "" && h.redisCache != nil {
+		givers, errG := h.redisCache.GetTopGivers(r.Context(), rangeKey, limit)
+		recipients, errR := h.redisCache.GetTopRecipients(r.Context(), rangeKey, limit)
+
+		if errG == nil && errR == nil && givers != nil && recipients != nil {
+			h.logger.Info().Str("handler", "top").Str("range", rangeKey).Msg("redis cache hit")
+			data = &TopUsersResult{
+				Givers:     givers,
+				Recipients: recipients,
+			}
+		}
+	}
+
+	// Fall back to database if cache miss or error
+	if data == nil {
+		h.logger.Debug().Str("handler", "top").Msg("falling back to database")
+		dbData, err := h.store.GetTopUsers(start, end, limit)
+		if err != nil {
+			h.logger.Error().Str("handler", "top").Err(err).Msg("database error")
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		data = dbData
 	}
 
 	h.logger.Info().Str("handler", "top").Int("givers", len(data.Givers)).Int("recipients", len(data.Recipients)).Msg("request completed")
@@ -577,4 +600,69 @@ func (h *APIHandlers) BatchUsersHandler(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+}
+
+// matchDateRangeToCache attempts to match a date range to a cached range key
+// Returns empty string if no match (caller should fall back to database)
+func (h *APIHandlers) matchDateRangeToCache(start, end time.Time) string {
+	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+
+	// Today
+	if isSameDay(start, today) && isSameDay(end, today) {
+		return RangeToday
+	}
+
+	// Last 7 days
+	sevenDaysAgo := today.AddDate(0, 0, -6)
+	if isSameDay(start, sevenDaysAgo) && isSameDay(end, today) {
+		return RangeLast7Days
+	}
+
+	// Current month
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	if isSameDay(start, monthStart) && isSameDay(end, today) {
+		return RangeCurrentMonth
+	}
+
+	// Last month
+	lastMonthStart := time.Date(now.Year(), now.Month()-1, 1, 0, 0, 0, 0, now.Location())
+	lastMonthEnd := monthStart.AddDate(0, 0, -1)
+	if isSameDay(start, lastMonthStart) && isSameDay(end, lastMonthEnd) {
+		return RangeLastMonth
+	}
+
+	// Current quarter
+	quarter := (int(now.Month())-1)/3 + 1
+	quarterStart := time.Date(now.Year(), time.Month((quarter-1)*3+1), 1, 0, 0, 0, 0, now.Location())
+	if isSameDay(start, quarterStart) && isSameDay(end, today) {
+		return RangeCurrentQuarter
+	}
+
+	// Last quarter
+	lastQuarterNum := quarter - 1
+	lastQuarterYear := now.Year()
+	if lastQuarterNum == 0 {
+		lastQuarterNum = 4
+		lastQuarterYear--
+	}
+	lastQuarterStart := time.Date(lastQuarterYear, time.Month((lastQuarterNum-1)*3+1), 1, 0, 0, 0, 0, now.Location())
+	lastQuarterEnd := quarterStart.AddDate(0, 0, -1)
+	if isSameDay(start, lastQuarterStart) && isSameDay(end, lastQuarterEnd) {
+		return RangeLastQuarter
+	}
+
+	// All-time (anything from 2020 or earlier to today)
+	if start.Year() <= 2020 && isSameDay(end, today) {
+		return RangeAllTime
+	}
+
+	return "" // No match - use database
+}
+
+// isSameDay checks if two times are on the same calendar day
+func isSameDay(t1, t2 time.Time) bool {
+	y1, m1, d1 := t1.Date()
+	y2, m2, d2 := t2.Date()
+	return y1 == y2 && m1 == m2 && d1 == d2
 }

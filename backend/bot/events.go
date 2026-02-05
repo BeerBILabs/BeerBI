@@ -201,14 +201,24 @@ func (ep *EventProcessor) handleMessageEvent(ev *slackevents.MessageEvent, envel
 		} else {
 			ep.logger.Info().Str("giver", ev.User).Str("recipient", recipient).Int("count", count).Msg("beer given")
 
-			// Invalidate Redis cache for both giver and recipient (lazy refresh)
+			// Update Redis cache - both user info and beer stats
 			if ep.redisCache != nil {
 				ctx := context.Background()
+
+				// Delete user info cache for both users (lazy refresh for profile data)
 				if err := ep.redisCache.DeleteUser(ctx, ev.User); err != nil {
 					ep.logger.Warn().Err(err).Str("userID", ev.User).Msg("failed to invalidate giver cache")
 				}
 				if err := ep.redisCache.DeleteUser(ctx, recipient); err != nil {
 					ep.logger.Warn().Err(err).Str("userID", recipient).Msg("failed to invalidate recipient cache")
+				}
+
+				// Increment beer stats in Redis (write-through cache)
+				if err := ep.redisCache.IncrementGivenStats(ctx, ev.User, count); err != nil {
+					ep.logger.Warn().Err(err).Str("giver", ev.User).Int("count", count).Msg("failed to increment given stats in redis")
+				}
+				if err := ep.redisCache.IncrementReceivedStats(ctx, recipient, count); err != nil {
+					ep.logger.Warn().Err(err).Str("recipient", recipient).Int("count", count).Msg("failed to increment received stats in redis")
 				}
 			}
 
