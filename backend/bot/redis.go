@@ -11,6 +11,16 @@ import (
 	"github.com/rs/zerolog"
 )
 
+// Cache overlap constants for maintaining historical data
+const (
+	// OVERLAP_DAYS_LAST_MONTH is how many days into a new month we continue updating last month's data
+	OVERLAP_DAYS_LAST_MONTH = 7
+	// OVERLAP_DAYS_LAST_QUARTER is how many days into a new quarter we continue updating last quarter's data
+	OVERLAP_DAYS_LAST_QUARTER = 7
+	// OVERLAP_MONTH_IN_QUARTER is the month number within a quarter (1-3) to determine if we need last quarter data
+	OVERLAP_MONTH_IN_QUARTER = 1
+)
+
 // UserCacheData represents cached user information
 type UserCacheData struct {
 	RealName     string    `json:"real_name"`
@@ -398,12 +408,12 @@ func (r *RedisUserCache) calculateActiveRanges() []string {
 	ranges = append(ranges, RangeLast7Days)
 
 	// Last quarter (if we're in first month of a quarter, also update last quarter)
-	if now.Month()%3 == 1 && now.Day() <= 7 {
+	if now.Month()%3 == OVERLAP_MONTH_IN_QUARTER && now.Day() <= OVERLAP_DAYS_LAST_QUARTER {
 		ranges = append(ranges, RangeLastQuarter)
 	}
 
 	// Last month (if we're in first week of month, also update last month)
-	if now.Day() <= 7 {
+	if now.Day() <= OVERLAP_DAYS_LAST_MONTH {
 		ranges = append(ranges, RangeLastMonth)
 	}
 
