@@ -270,7 +270,7 @@ const (
 	RangeToday          = "today"
 )
 
-// IncrementGivenStats increments beer given count for a user in common date ranges
+// IncrementGivenStats performs a write-through cache update for beers given by a user.
 func (r *RedisUserCache) IncrementGivenStats(ctx context.Context, userID string, count int) error {
 	if r.circuitBreaker.IsOpen() {
 		r.logger.Debug().Msg("circuit breaker open, skipping redis write")
