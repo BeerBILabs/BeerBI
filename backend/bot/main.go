@@ -135,6 +135,7 @@ func main() {
 	mux.HandleFunc("/api/health", handlers.HealthHandler)
 
 	// Stats/Analytics endpoints (auth required)
+	mux.Handle("/api/stats/combined", authMiddleware(*apiToken, zlogger, http.HandlerFunc(handlers.CombinedAnalyticsHandler)))
 	mux.Handle("/api/stats/timeline", authMiddleware(*apiToken, zlogger, http.HandlerFunc(handlers.TimelineHandler)))
 	mux.Handle("/api/stats/quarterly", authMiddleware(*apiToken, zlogger, http.HandlerFunc(handlers.QuarterlyHandler)))
 	mux.Handle("/api/stats/top", authMiddleware(*apiToken, zlogger, http.HandlerFunc(handlers.TopUsersHandler)))

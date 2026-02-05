@@ -1,4 +1,4 @@
-module github.com/DanielWeeber/beer-with-me/bot
+module github.com/BeerBILabs/BeerBI/bot
 
 go 1.25.6
 

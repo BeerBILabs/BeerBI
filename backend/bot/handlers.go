@@ -671,3 +671,127 @@ func isSameDay(t1, t2 time.Time) bool {
 	y2, m2, d2 := t2.Date()
 	return y1 == y2 && m1 == m2 && d1 == d2
 }
+
+// CombinedAnalyticsResponse holds all analytics data for a date range
+type CombinedAnalyticsResponse struct {
+	Timeline      []TimelinePoint `json:"timeline"`
+	TopGivers     []TopUserStats  `json:"top_givers"`
+	TopRecipients []TopUserStats  `json:"top_recipients"`
+	Heatmap       []HeatmapPoint  `json:"heatmap"`
+	Pairs         []PairStats     `json:"pairs"`
+}
+
+// CombinedAnalyticsHandler returns all analytics data in one request
+// Query params: start, end (YYYY-MM-DD), granularity (day|week|month), limit (default 20), pairs_limit (default 15)
+func (h *APIHandlers) CombinedAnalyticsHandler(w http.ResponseWriter, r *http.Request) {
+	h.logger.Info().Str("handler", "combined_analytics").Str("method", r.Method).Str("path", r.URL.Path).Str("query", r.URL.RawQuery).Msg("request received")
+
+	start, end, err := parseDateRangeFromParams(r)
+	if err != nil {
+		h.logger.Warn().Str("handler", "combined_analytics").Err(err).Msg("invalid date range")
+		http.Error(w, "invalid or missing date range: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Parse parameters
+	granularity := r.URL.Query().Get("granularity")
+	if granularity == "" {
+		granularity = "day"
+	}
+	if granularity != "day" && granularity != "week" && granularity != "month" {
+		http.Error(w, "granularity must be day, week, or month", http.StatusBadRequest)
+		return
+	}
+
+	limit := 20
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if v, err := strconv.Atoi(limitStr); err == nil && v > 0 && v <= 100 {
+			limit = v
+		}
+	}
+
+	pairsLimit := 15
+	if pairsLimitStr := r.URL.Query().Get("pairs_limit"); pairsLimitStr != "" {
+		if v, err := strconv.Atoi(pairsLimitStr); err == nil && v > 0 && v <= 50 {
+			pairsLimit = v
+		}
+	}
+
+	response := CombinedAnalyticsResponse{}
+
+	// Fetch timeline data
+	timelineData, err := h.store.GetTimelineStats(start, end, granularity)
+	if err != nil {
+		h.logger.Error().Str("handler", "combined_analytics").Err(err).Msg("failed to fetch timeline")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	response.Timeline = timelineData
+
+	// Fetch top users (try Redis cache first for common ranges)
+	rangeKey := h.matchDateRangeToCache(start, end)
+	if rangeKey != "" && h.redisCache != nil {
+		givers, errG := h.redisCache.GetTopGivers(r.Context(), rangeKey, limit)
+		recipients, errR := h.redisCache.GetTopRecipients(r.Context(), rangeKey, limit)
+
+		if errG == nil && errR == nil && givers != nil && recipients != nil {
+			h.logger.Debug().Str("handler", "combined_analytics").Str("range", rangeKey).Msg("redis cache hit for top users")
+			response.TopGivers = givers
+			response.TopRecipients = recipients
+		} else {
+			// Fall back to database
+			topUsers, err := h.store.GetTopUsers(start, end, limit)
+			if err != nil {
+				h.logger.Error().Str("handler", "combined_analytics").Err(err).Msg("failed to fetch top users")
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			response.TopGivers = topUsers.Givers
+			response.TopRecipients = topUsers.Recipients
+		}
+	} else {
+		// Fetch from database
+		topUsers, err := h.store.GetTopUsers(start, end, limit)
+		if err != nil {
+			h.logger.Error().Str("handler", "combined_analytics").Err(err).Msg("failed to fetch top users")
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		response.TopGivers = topUsers.Givers
+		response.TopRecipients = topUsers.Recipients
+	}
+
+	// Fetch heatmap data
+	heatmapData, err := h.store.GetHeatmapStats(start, end)
+	if err != nil {
+		h.logger.Error().Str("handler", "combined_analytics").Err(err).Msg("failed to fetch heatmap")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	response.Heatmap = heatmapData
+
+	// Fetch pairs data
+	pairsData, err := h.store.GetPairStats(start, end, pairsLimit)
+	if err != nil {
+		h.logger.Error().Str("handler", "combined_analytics").Err(err).Msg("failed to fetch pairs")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	response.Pairs = pairsData
+
+	h.logger.Info().
+		Str("handler", "combined_analytics").
+		Int("timeline_points", len(response.Timeline)).
+		Int("top_givers", len(response.TopGivers)).
+		Int("top_recipients", len(response.TopRecipients)).
+		Int("heatmap_days", len(response.Heatmap)).
+		Int("pairs", len(response.Pairs)).
+		Msg("request completed")
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		h.logger.Error().Str("handler", "combined_analytics").Err(err).Msg("failed to encode response")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
