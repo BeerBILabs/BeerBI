@@ -49,3 +49,7 @@ logs/
 # Misc
 coverage.out
 *.coverprofile
+
+.windsurf
+
+next-env.d.ts
