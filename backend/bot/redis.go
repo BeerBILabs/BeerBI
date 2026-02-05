@@ -435,7 +435,7 @@ func (r *RedisUserCache) PopulateFromDB(ctx context.Context, store *SQLiteStore)
 			end:   now,
 		},
 		RangeLastMonth: {
-			start: time.Date(now.Year(), now.Month()-1, 1, 0, 0, 0, 0, now.Location()),
+			start: time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()).AddDate(0, -1, 0),
 			end:   time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location()).AddDate(0, 0, -1),
 		},
 	}

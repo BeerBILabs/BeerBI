@@ -626,7 +626,7 @@ func (h *APIHandlers) matchDateRangeToCache(start, end time.Time) string {
 	}
 
 	// Last month
-	lastMonthStart := time.Date(now.Year(), now.Month()-1, 1, 0, 0, 0, 0, now.Location())
+	lastMonthStart := monthStart.AddDate(0, -1, 0)
 	lastMonthEnd := monthStart.AddDate(0, 0, -1)
 	if isSameDay(start, lastMonthStart) && isSameDay(end, lastMonthEnd) {
 		return RangeLastMonth
