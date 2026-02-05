@@ -90,6 +90,19 @@ func main() {
 	zlogger = zlogger.Level(level)
 	zlog.Logger = zlogger
 
+	// Initialize Redis cache
+	redisAddr := os.Getenv("REDIS_ADDR")
+	if redisAddr == "" {
+		redisAddr = "cache:6379" // Default to Docker service name
+	}
+	redisCache, err := NewRedisUserCache(redisAddr, zlogger)
+	if err != nil {
+		zlogger.Warn().Err(err).Msg("redis connection failed, continuing without cache")
+		redisCache = nil // Graceful fallback - continue without Redis
+	} else {
+		defer redisCache.Close()
+	}
+
 	// init Slack connection manager
 	slackManager := NewSlackConnectionManager(*botToken, *appToken, zlogger)
 
@@ -101,7 +114,7 @@ func main() {
 	prometheus.MustRegister(msgsProcessed)
 
 	// Setup HTTP handlers
-	handlers := NewAPIHandlers(store, slackManager.GetClient(), slackManager, zlogger)
+	handlers := NewAPIHandlers(store, slackManager.GetClient(), slackManager, redisCache, zlogger)
 
 	// HTTP server for health + metrics
 	mux := http.NewServeMux()
@@ -115,6 +128,7 @@ func main() {
 	mux.Handle("/api/given", authMiddleware(*apiToken, zlogger, http.HandlerFunc(handlers.GivenHandler)))
 	mux.Handle("/api/received", authMiddleware(*apiToken, zlogger, http.HandlerFunc(handlers.ReceivedHandler)))
 	mux.Handle("/api/user", authMiddleware(*apiToken, zlogger, http.HandlerFunc(handlers.UserHandler)))
+	mux.Handle("/api/users", authMiddleware(*apiToken, zlogger, http.HandlerFunc(handlers.BatchUsersHandler)))
 	// Public endpoints (no auth required)
 	mux.Handle("/api/givers", http.HandlerFunc(handlers.GiversHandler))
 	mux.Handle("/api/recipients", http.HandlerFunc(handlers.RecipientsHandler))
@@ -140,7 +154,7 @@ func main() {
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
 	// Create event processor and handler
-	eventProcessor := NewEventProcessor(store, slackManager, *channelID, emoji, *maxPerDay, zlogger, msgsProcessed)
+	eventProcessor := NewEventProcessor(store, slackManager, redisCache, *channelID, emoji, *maxPerDay, zlogger, msgsProcessed)
 
 	// Start Slack connection manager with automatic reconnection
 	slackManager.StartWithReconnection(ctx, eventProcessor.HandleEvent)

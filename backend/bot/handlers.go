@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -17,15 +18,17 @@ type APIHandlers struct {
 	store        *SQLiteStore
 	slackClient  *slack.Client
 	slackManager *SlackConnectionManager
+	redisCache   *RedisUserCache
 	logger       zerolog.Logger
 }
 
 // NewAPIHandlers creates a new APIHandlers instance
-func NewAPIHandlers(store *SQLiteStore, slackClient *slack.Client, slackManager *SlackConnectionManager, logger zerolog.Logger) *APIHandlers {
+func NewAPIHandlers(store *SQLiteStore, slackClient *slack.Client, slackManager *SlackConnectionManager, redisCache *RedisUserCache, logger zerolog.Logger) *APIHandlers {
 	return &APIHandlers{
 		store:        store,
 		slackClient:  slackClient,
 		slackManager: slackManager,
+		redisCache:   redisCache,
 		logger:       logger,
 	}
 }
@@ -100,8 +103,27 @@ func (h *APIHandlers) UserHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var realName, profileImage string
+	ctx := r.Context()
 
-	// Try Slack API first to get fresh data
+	// Try Redis cache first (if available)
+	if h.redisCache != nil {
+		cached, err := h.redisCache.GetUser(ctx, userID)
+		if err == nil && cached != nil {
+			h.logger.Info().Str("handler", "user").Str("userID", userID).Msg("redis cache hit")
+			realName = cached.RealName
+			profileImage = cached.ProfileImage
+
+			response := map[string]string{
+				"real_name":     realName,
+				"profile_image": profileImage,
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(response)
+			return
+		}
+	}
+
+	// Try Slack API to get fresh data
 	user, err := h.slackClient.GetUserInfo(userID)
 	if err != nil {
 		h.logger.Warn().Str("handler", "user").Str("userID", userID).Err(err).Msg("slack API error, checking cache")
@@ -112,12 +134,20 @@ func (h *APIHandlers) UserHandler(w http.ResponseWriter, r *http.Request) {
 	if err == nil && user.RealName != "" {
 		realName = user.RealName
 		profileImage = user.Profile.Image192
-		// Cache the successful response with valid name
+
+		// Cache to Redis (if available)
+		if h.redisCache != nil {
+			if cacheErr := h.redisCache.SetUser(ctx, userID, realName, profileImage); cacheErr != nil {
+				h.logger.Warn().Str("handler", "user").Str("userID", userID).Err(cacheErr).Msg("failed to cache user to redis")
+			}
+		}
+
+		// Cache to SQLite
 		if cacheErr := h.store.SetCachedUser(userID, realName, profileImage); cacheErr != nil {
-			h.logger.Warn().Str("handler", "user").Str("userID", userID).Err(cacheErr).Msg("failed to cache user")
+			h.logger.Warn().Str("handler", "user").Str("userID", userID).Err(cacheErr).Msg("failed to cache user to sqlite")
 		}
 	} else {
-		// Slack API failed or returned empty name - try cache
+		// Slack API failed or returned empty name - try SQLite cache
 		cached, cacheErr := h.store.GetCachedUser(userID)
 		if cacheErr != nil {
 			h.logger.Error().Str("handler", "user").Str("userID", userID).Err(cacheErr).Msg("cache lookup error")
@@ -423,4 +453,128 @@ func (h *APIHandlers) PairsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = w.Write(buf.Bytes())
+}
+
+// BatchUsersHandler returns information for multiple users in one request
+// Query params: ids (comma-separated user IDs, max 100)
+func (h *APIHandlers) BatchUsersHandler(w http.ResponseWriter, r *http.Request) {
+	h.logger.Debug().Str("handler", "batch_users").Str("method", r.Method).Str("path", r.URL.Path).Msg("request received")
+
+	idsParam := r.URL.Query().Get("ids")
+	if idsParam == "" {
+		h.logger.Warn().Str("handler", "batch_users").Msg("missing ids parameter")
+		http.Error(w, "ids required (comma-separated)", http.StatusBadRequest)
+		return
+	}
+
+	// Parse and validate IDs
+	userIDs := []string{}
+	for _, id := range strings.Split(idsParam, ",") {
+		id = strings.TrimSpace(id)
+		if id != "" {
+			userIDs = append(userIDs, id)
+		}
+	}
+
+	if len(userIDs) == 0 {
+		h.logger.Warn().Str("handler", "batch_users").Msg("no valid user IDs provided")
+		http.Error(w, "no valid user IDs provided", http.StatusBadRequest)
+		return
+	}
+
+	// Cap at 100 IDs
+	if len(userIDs) > 100 {
+		h.logger.Warn().Str("handler", "batch_users").Int("count", len(userIDs)).Msg("too many user IDs, capping at 100")
+		userIDs = userIDs[:100]
+	}
+
+	ctx := r.Context()
+	results := make(map[string]map[string]string)
+	missing := []string{}
+
+	// Try Redis cache first (if available)
+	if h.redisCache != nil {
+		cached, err := h.redisCache.GetUsers(ctx, userIDs)
+		if err == nil {
+			for userID, data := range cached {
+				results[userID] = map[string]string{
+					"real_name":     data.RealName,
+					"profile_image": data.ProfileImage,
+				}
+			}
+		}
+	}
+
+	// Find missing users
+	for _, userID := range userIDs {
+		if _, ok := results[userID]; !ok {
+			missing = append(missing, userID)
+		}
+	}
+
+	// Fetch missing users from Slack API
+	if len(missing) > 0 {
+		h.logger.Debug().Str("handler", "batch_users").Int("missing", len(missing)).Msg("fetching missing users from Slack")
+
+		toCache := make(map[string]UserCacheData)
+
+		for _, userID := range missing {
+			user, err := h.slackClient.GetUserInfo(userID)
+			if err != nil {
+				h.logger.Warn().Str("handler", "batch_users").Str("userID", userID).Err(err).Msg("slack API error for user")
+
+				// Try SQLite cache as fallback
+				cached, cacheErr := h.store.GetCachedUser(userID)
+				if cacheErr == nil && cached != nil && cached.RealName != "" {
+					results[userID] = map[string]string{
+						"real_name":     cached.RealName,
+						"profile_image": cached.ProfileImage,
+					}
+				}
+				continue
+			}
+
+			if user.RealName != "" {
+				results[userID] = map[string]string{
+					"real_name":     user.RealName,
+					"profile_image": user.Profile.Image192,
+				}
+
+				// Prepare for caching
+				toCache[userID] = UserCacheData{
+					RealName:     user.RealName,
+					ProfileImage: user.Profile.Image192,
+				}
+
+				// Cache to SQLite
+				if err := h.store.SetCachedUser(userID, user.RealName, user.Profile.Image192); err != nil {
+					h.logger.Warn().Str("handler", "batch_users").Str("userID", userID).Err(err).Msg("failed to cache user to sqlite")
+				}
+			} else {
+				// Try SQLite cache for deactivated users
+				cached, cacheErr := h.store.GetCachedUser(userID)
+				if cacheErr == nil && cached != nil && cached.RealName != "" {
+					results[userID] = map[string]string{
+						"real_name":     cached.RealName,
+						"profile_image": cached.ProfileImage,
+					}
+				}
+			}
+		}
+
+		// Batch cache to Redis
+		if h.redisCache != nil && len(toCache) > 0 {
+			if err := h.redisCache.SetUsers(ctx, toCache); err != nil {
+				h.logger.Warn().Str("handler", "batch_users").Err(err).Msg("failed to batch cache users to redis")
+			}
+		}
+	}
+
+	h.logger.Info().Str("handler", "batch_users").Int("requested", len(userIDs)).Int("found", len(results)).Msg("request completed")
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(results); err != nil {
+		h.logger.Error().Str("handler", "batch_users").Err(err).Msg("failed to encode response")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }

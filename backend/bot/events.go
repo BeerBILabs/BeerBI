@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"time"
@@ -16,6 +17,7 @@ import (
 type EventProcessor struct {
 	store         *SQLiteStore
 	slackManager  *SlackConnectionManager
+	redisCache    *RedisUserCache
 	channelID     string
 	emoji         string
 	maxPerDay     int
@@ -26,10 +28,11 @@ type EventProcessor struct {
 }
 
 // NewEventProcessor creates a new EventProcessor
-func NewEventProcessor(store *SQLiteStore, slackManager *SlackConnectionManager, channelID, emoji string, maxPerDay int, logger zerolog.Logger, msgsProcessed *prometheus.CounterVec) *EventProcessor {
+func NewEventProcessor(store *SQLiteStore, slackManager *SlackConnectionManager, redisCache *RedisUserCache, channelID, emoji string, maxPerDay int, logger zerolog.Logger, msgsProcessed *prometheus.CounterVec) *EventProcessor {
 	return &EventProcessor{
 		store:         store,
 		slackManager:  slackManager,
+		redisCache:    redisCache,
 		channelID:     channelID,
 		emoji:         emoji,
 		maxPerDay:     maxPerDay,
@@ -197,6 +200,18 @@ func (ep *EventProcessor) handleMessageEvent(ev *slackevents.MessageEvent, envel
 			ep.logger.Error().Err(err).Str("giver", ev.User).Str("recipient", recipient).Int("count", count).Msg("failed to add beer")
 		} else {
 			ep.logger.Info().Str("giver", ev.User).Str("recipient", recipient).Int("count", count).Msg("beer given")
+
+			// Invalidate Redis cache for both giver and recipient (lazy refresh)
+			if ep.redisCache != nil {
+				ctx := context.Background()
+				if err := ep.redisCache.DeleteUser(ctx, ev.User); err != nil {
+					ep.logger.Warn().Err(err).Str("userID", ev.User).Msg("failed to invalidate giver cache")
+				}
+				if err := ep.redisCache.DeleteUser(ctx, recipient); err != nil {
+					ep.logger.Warn().Err(err).Str("userID", recipient).Msg("failed to invalidate recipient cache")
+				}
+			}
+
 			// Post confirmation message to channel
 			var message string
 			if count == 1 {
