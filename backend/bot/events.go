@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"regexp"
 	"time"
@@ -16,6 +17,7 @@ import (
 type EventProcessor struct {
 	store         *SQLiteStore
 	slackManager  *SlackConnectionManager
+	redisCache    *RedisUserCache
 	channelID     string
 	emoji         string
 	maxPerDay     int
@@ -26,10 +28,11 @@ type EventProcessor struct {
 }
 
 // NewEventProcessor creates a new EventProcessor
-func NewEventProcessor(store *SQLiteStore, slackManager *SlackConnectionManager, channelID, emoji string, maxPerDay int, logger zerolog.Logger, msgsProcessed *prometheus.CounterVec) *EventProcessor {
+func NewEventProcessor(store *SQLiteStore, slackManager *SlackConnectionManager, redisCache *RedisUserCache, channelID, emoji string, maxPerDay int, logger zerolog.Logger, msgsProcessed *prometheus.CounterVec) *EventProcessor {
 	return &EventProcessor{
 		store:         store,
 		slackManager:  slackManager,
+		redisCache:    redisCache,
 		channelID:     channelID,
 		emoji:         emoji,
 		maxPerDay:     maxPerDay,
@@ -197,6 +200,20 @@ func (ep *EventProcessor) handleMessageEvent(ev *slackevents.MessageEvent, envel
 			ep.logger.Error().Err(err).Str("giver", ev.User).Str("recipient", recipient).Int("count", count).Msg("failed to add beer")
 		} else {
 			ep.logger.Info().Str("giver", ev.User).Str("recipient", recipient).Int("count", count).Msg("beer given")
+
+			// Update Redis beer stats (write-through cache)
+			if ep.redisCache != nil {
+				ctx := context.Background()
+
+				// Increment beer stats in Redis (write-through cache)
+				if err := ep.redisCache.IncrementGivenStats(ctx, ev.User, count); err != nil {
+					ep.logger.Warn().Err(err).Str("giver", ev.User).Int("count", count).Msg("failed to increment given stats in redis")
+				}
+				if err := ep.redisCache.IncrementReceivedStats(ctx, recipient, count); err != nil {
+					ep.logger.Warn().Err(err).Str("recipient", recipient).Int("count", count).Msg("failed to increment received stats in redis")
+				}
+			}
+
 			// Post confirmation message to channel
 			var message string
 			if count == 1 {

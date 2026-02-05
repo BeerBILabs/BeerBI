@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -17,15 +18,17 @@ type APIHandlers struct {
 	store        *SQLiteStore
 	slackClient  *slack.Client
 	slackManager *SlackConnectionManager
+	redisCache   *RedisUserCache
 	logger       zerolog.Logger
 }
 
 // NewAPIHandlers creates a new APIHandlers instance
-func NewAPIHandlers(store *SQLiteStore, slackClient *slack.Client, slackManager *SlackConnectionManager, logger zerolog.Logger) *APIHandlers {
+func NewAPIHandlers(store *SQLiteStore, slackClient *slack.Client, slackManager *SlackConnectionManager, redisCache *RedisUserCache, logger zerolog.Logger) *APIHandlers {
 	return &APIHandlers{
 		store:        store,
 		slackClient:  slackClient,
 		slackManager: slackManager,
+		redisCache:   redisCache,
 		logger:       logger,
 	}
 }
@@ -100,8 +103,27 @@ func (h *APIHandlers) UserHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var realName, profileImage string
+	ctx := r.Context()
 
-	// Try Slack API first to get fresh data
+	// Try Redis cache first (if available)
+	if h.redisCache != nil {
+		cached, err := h.redisCache.GetUser(ctx, userID)
+		if err == nil && cached != nil {
+			h.logger.Info().Str("handler", "user").Str("userID", userID).Msg("redis cache hit")
+			realName = cached.RealName
+			profileImage = cached.ProfileImage
+
+			response := map[string]string{
+				"real_name":     realName,
+				"profile_image": profileImage,
+			}
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(response)
+			return
+		}
+	}
+
+	// Try Slack API to get fresh data
 	user, err := h.slackClient.GetUserInfo(userID)
 	if err != nil {
 		h.logger.Warn().Str("handler", "user").Str("userID", userID).Err(err).Msg("slack API error, checking cache")
@@ -112,12 +134,20 @@ func (h *APIHandlers) UserHandler(w http.ResponseWriter, r *http.Request) {
 	if err == nil && user.RealName != "" {
 		realName = user.RealName
 		profileImage = user.Profile.Image192
-		// Cache the successful response with valid name
+
+		// Cache to Redis (if available)
+		if h.redisCache != nil {
+			if cacheErr := h.redisCache.SetUser(ctx, userID, realName, profileImage); cacheErr != nil {
+				h.logger.Warn().Str("handler", "user").Str("userID", userID).Err(cacheErr).Msg("failed to cache user to redis")
+			}
+		}
+
+		// Cache to SQLite
 		if cacheErr := h.store.SetCachedUser(userID, realName, profileImage); cacheErr != nil {
-			h.logger.Warn().Str("handler", "user").Str("userID", userID).Err(cacheErr).Msg("failed to cache user")
+			h.logger.Warn().Str("handler", "user").Str("userID", userID).Err(cacheErr).Msg("failed to cache user to sqlite")
 		}
 	} else {
-		// Slack API failed or returned empty name - try cache
+		// Slack API failed or returned empty name - try SQLite cache
 		cached, cacheErr := h.store.GetCachedUser(userID)
 		if cacheErr != nil {
 			h.logger.Error().Str("handler", "user").Str("userID", userID).Err(cacheErr).Msg("cache lookup error")
@@ -340,11 +370,34 @@ func (h *APIHandlers) TopUsersHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	data, err := h.store.GetTopUsers(start, end, limit)
-	if err != nil {
-		h.logger.Error().Str("handler", "top").Err(err).Msg("database error")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	// Try to match date range to a common cached range
+	rangeKey := h.matchDateRangeToCache(start, end)
+	var data *TopUsersResult
+
+	// Try Redis cache first for common ranges
+	if rangeKey != "" && h.redisCache != nil {
+		givers, errG := h.redisCache.GetTopGivers(r.Context(), rangeKey, limit)
+		recipients, errR := h.redisCache.GetTopRecipients(r.Context(), rangeKey, limit)
+
+		if errG == nil && errR == nil && givers != nil && recipients != nil {
+			h.logger.Info().Str("handler", "top").Str("range", rangeKey).Msg("redis cache hit")
+			data = &TopUsersResult{
+				Givers:     givers,
+				Recipients: recipients,
+			}
+		}
+	}
+
+	// Fall back to database if cache miss or error
+	if data == nil {
+		h.logger.Debug().Str("handler", "top").Msg("falling back to database")
+		dbData, err := h.store.GetTopUsers(start, end, limit)
+		if err != nil {
+			h.logger.Error().Str("handler", "top").Err(err).Msg("database error")
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		data = dbData
 	}
 
 	h.logger.Info().Str("handler", "top").Int("givers", len(data.Givers)).Int("recipients", len(data.Recipients)).Msg("request completed")
@@ -423,4 +476,322 @@ func (h *APIHandlers) PairsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, _ = w.Write(buf.Bytes())
+}
+
+// BatchUsersHandler returns information for multiple users in one request
+// Query params: ids (comma-separated user IDs, max 100)
+func (h *APIHandlers) BatchUsersHandler(w http.ResponseWriter, r *http.Request) {
+	h.logger.Debug().Str("handler", "batch_users").Str("method", r.Method).Str("path", r.URL.Path).Msg("request received")
+
+	idsParam := r.URL.Query().Get("ids")
+	if idsParam == "" {
+		h.logger.Warn().Str("handler", "batch_users").Msg("missing ids parameter")
+		http.Error(w, "ids required (comma-separated)", http.StatusBadRequest)
+		return
+	}
+
+	// Parse and validate IDs
+	userIDs := []string{}
+	for _, id := range strings.Split(idsParam, ",") {
+		id = strings.TrimSpace(id)
+		if id != "" {
+			userIDs = append(userIDs, id)
+		}
+	}
+
+	if len(userIDs) == 0 {
+		h.logger.Warn().Str("handler", "batch_users").Msg("no valid user IDs provided")
+		http.Error(w, "no valid user IDs provided", http.StatusBadRequest)
+		return
+	}
+
+	// Cap at batch size limit (max 100 users per request)
+	const batchSizeLimit = 100
+	if len(userIDs) > batchSizeLimit {
+		h.logger.Warn().
+			Str("handler", "batch_users").
+			Int("count", len(userIDs)).
+			Int("limit", batchSizeLimit).
+			Msg("too many user IDs, capping at batch size limit")
+		userIDs = userIDs[:batchSizeLimit]
+	}
+
+	ctx := r.Context()
+	results := make(map[string]map[string]string)
+	missing := []string{}
+
+	// Try Redis cache first (if available)
+	if h.redisCache != nil {
+		cached, err := h.redisCache.GetUsers(ctx, userIDs)
+		if err == nil {
+			for userID, data := range cached {
+				results[userID] = map[string]string{
+					"real_name":     data.RealName,
+					"profile_image": data.ProfileImage,
+				}
+			}
+		}
+	}
+
+	// Find missing users
+	for _, userID := range userIDs {
+		if _, ok := results[userID]; !ok {
+			missing = append(missing, userID)
+		}
+	}
+
+	// Fetch missing users from Slack API
+	if len(missing) > 0 {
+		h.logger.Debug().Str("handler", "batch_users").Int("missing", len(missing)).Msg("fetching missing users from Slack")
+
+		toCache := make(map[string]UserCacheData)
+
+		for _, userID := range missing {
+			user, err := h.slackClient.GetUserInfo(userID)
+			if err != nil {
+				h.logger.Warn().Str("handler", "batch_users").Str("userID", userID).Err(err).Msg("slack API error for user")
+
+				// Try SQLite cache as fallback
+				cached, cacheErr := h.store.GetCachedUser(userID)
+				if cacheErr == nil && cached != nil && cached.RealName != "" {
+					results[userID] = map[string]string{
+						"real_name":     cached.RealName,
+						"profile_image": cached.ProfileImage,
+					}
+				}
+				continue
+			}
+
+			if user.RealName != "" {
+				results[userID] = map[string]string{
+					"real_name":     user.RealName,
+					"profile_image": user.Profile.Image192,
+				}
+
+				// Prepare for caching
+				toCache[userID] = UserCacheData{
+					RealName:     user.RealName,
+					ProfileImage: user.Profile.Image192,
+				}
+
+				// Cache to SQLite
+				if err := h.store.SetCachedUser(userID, user.RealName, user.Profile.Image192); err != nil {
+					h.logger.Warn().Str("handler", "batch_users").Str("userID", userID).Err(err).Msg("failed to cache user to sqlite")
+				}
+			} else {
+				// Try SQLite cache for deactivated users
+				cached, cacheErr := h.store.GetCachedUser(userID)
+				if cacheErr == nil && cached != nil && cached.RealName != "" {
+					results[userID] = map[string]string{
+						"real_name":     cached.RealName,
+						"profile_image": cached.ProfileImage,
+					}
+				}
+			}
+		}
+
+		// Batch cache to Redis
+		if h.redisCache != nil && len(toCache) > 0 {
+			if err := h.redisCache.SetUsers(ctx, toCache); err != nil {
+				h.logger.Warn().Str("handler", "batch_users").Err(err).Msg("failed to batch cache users to redis")
+			}
+		}
+	}
+
+	h.logger.Info().Str("handler", "batch_users").Int("requested", len(userIDs)).Int("found", len(results)).Msg("request completed")
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(results); err != nil {
+		h.logger.Error().Str("handler", "batch_users").Err(err).Msg("failed to encode response")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
+// matchDateRangeToCache attempts to match a date range to a cached range key
+// Returns empty string if no match (caller should fall back to database)
+func (h *APIHandlers) matchDateRangeToCache(start, end time.Time) string {
+	now := time.Now()
+	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+
+	// Today
+	if isSameDay(start, today) && isSameDay(end, today) {
+		return RangeToday
+	}
+
+	// Last 7 days
+	sevenDaysAgo := today.AddDate(0, 0, -6)
+	if isSameDay(start, sevenDaysAgo) && isSameDay(end, today) {
+		return RangeLast7Days
+	}
+
+	// Current month
+	monthStart := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	if isSameDay(start, monthStart) && isSameDay(end, today) {
+		return RangeCurrentMonth
+	}
+
+	// Last month
+	lastMonthStart := monthStart.AddDate(0, -1, 0)
+	lastMonthEnd := monthStart.AddDate(0, 0, -1)
+	if isSameDay(start, lastMonthStart) && isSameDay(end, lastMonthEnd) {
+		return RangeLastMonth
+	}
+
+	// Current quarter
+	quarter := getQuarterNumber(now)
+	quarterStart := time.Date(now.Year(), getQuarterStartMonth(quarter), 1, 0, 0, 0, 0, now.Location())
+	if isSameDay(start, quarterStart) && isSameDay(end, today) {
+		return RangeCurrentQuarter
+	}
+
+	// Last quarter
+	lastQuarterNum := quarter - 1
+	lastQuarterYear := now.Year()
+	if lastQuarterNum == 0 {
+		lastQuarterNum = 4
+		lastQuarterYear--
+	}
+	lastQuarterStart := time.Date(lastQuarterYear, getQuarterStartMonth(lastQuarterNum), 1, 0, 0, 0, 0, now.Location())
+	lastQuarterEnd := quarterStart.AddDate(0, 0, -1)
+	if isSameDay(start, lastQuarterStart) && isSameDay(end, lastQuarterEnd) {
+		return RangeLastQuarter
+	}
+
+	// All-time (anything from 2020 or earlier to today)
+	if start.Year() <= 2020 && isSameDay(end, today) {
+		return RangeAllTime
+	}
+
+	return "" // No match - use database
+}
+
+// isSameDay checks if two times are on the same calendar day
+func isSameDay(t1, t2 time.Time) bool {
+	y1, m1, d1 := t1.Date()
+	y2, m2, d2 := t2.Date()
+	return y1 == y2 && m1 == m2 && d1 == d2
+}
+
+// CombinedAnalyticsResponse holds all analytics data for a date range
+type CombinedAnalyticsResponse struct {
+	Timeline      []TimelinePoint `json:"timeline"`
+	TopGivers     []TopUserStats  `json:"top_givers"`
+	TopRecipients []TopUserStats  `json:"top_recipients"`
+	Heatmap       []HeatmapPoint  `json:"heatmap"`
+	Pairs         []PairStats     `json:"pairs"`
+}
+
+// CombinedAnalyticsHandler returns all analytics data in one request
+// Query params: start, end (YYYY-MM-DD), granularity (day|week|month), limit (default 20), pairs_limit (default 15)
+func (h *APIHandlers) CombinedAnalyticsHandler(w http.ResponseWriter, r *http.Request) {
+	h.logger.Info().Str("handler", "combined_analytics").Str("method", r.Method).Str("path", r.URL.Path).Str("query", r.URL.RawQuery).Msg("request received")
+
+	start, end, err := parseDateRangeFromParams(r)
+	if err != nil {
+		h.logger.Warn().Str("handler", "combined_analytics").Err(err).Msg("invalid date range")
+		http.Error(w, "invalid or missing date range: "+err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	// Parse parameters
+	granularity := r.URL.Query().Get("granularity")
+	if granularity == "" {
+		granularity = "day"
+	}
+	if granularity != "day" && granularity != "week" && granularity != "month" {
+		http.Error(w, "granularity must be day, week, or month", http.StatusBadRequest)
+		return
+	}
+
+	limit := 20
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if v, err := strconv.Atoi(limitStr); err == nil && v > 0 && v <= 100 {
+			limit = v
+		}
+	}
+
+	pairsLimit := 15
+	if pairsLimitStr := r.URL.Query().Get("pairs_limit"); pairsLimitStr != "" {
+		if v, err := strconv.Atoi(pairsLimitStr); err == nil && v > 0 && v <= 50 {
+			pairsLimit = v
+		}
+	}
+
+	response := CombinedAnalyticsResponse{}
+
+	// Fetch timeline data
+	timelineData, err := h.store.GetTimelineStats(start, end, granularity)
+	if err != nil {
+		h.logger.Error().Str("handler", "combined_analytics").Err(err).Msg("failed to fetch timeline")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	response.Timeline = timelineData
+
+	// Fetch top users (try Redis cache first for common ranges)
+	rangeKey := h.matchDateRangeToCache(start, end)
+	if rangeKey != "" && h.redisCache != nil {
+		givers, errG := h.redisCache.GetTopGivers(r.Context(), rangeKey, limit)
+		recipients, errR := h.redisCache.GetTopRecipients(r.Context(), rangeKey, limit)
+
+		if errG == nil && errR == nil && givers != nil && recipients != nil {
+			h.logger.Debug().Str("handler", "combined_analytics").Str("range", rangeKey).Msg("redis cache hit for top users")
+			response.TopGivers = givers
+			response.TopRecipients = recipients
+		} else {
+			// Fall back to database
+			topUsers, err := h.store.GetTopUsers(start, end, limit)
+			if err != nil {
+				h.logger.Error().Str("handler", "combined_analytics").Err(err).Msg("failed to fetch top users")
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			response.TopGivers = topUsers.Givers
+			response.TopRecipients = topUsers.Recipients
+		}
+	} else {
+		// Fetch from database
+		topUsers, err := h.store.GetTopUsers(start, end, limit)
+		if err != nil {
+			h.logger.Error().Str("handler", "combined_analytics").Err(err).Msg("failed to fetch top users")
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		response.TopGivers = topUsers.Givers
+		response.TopRecipients = topUsers.Recipients
+	}
+
+	// Fetch heatmap data
+	heatmapData, err := h.store.GetHeatmapStats(start, end)
+	if err != nil {
+		h.logger.Error().Str("handler", "combined_analytics").Err(err).Msg("failed to fetch heatmap")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	response.Heatmap = heatmapData
+
+	// Fetch pairs data
+	pairsData, err := h.store.GetPairStats(start, end, pairsLimit)
+	if err != nil {
+		h.logger.Error().Str("handler", "combined_analytics").Err(err).Msg("failed to fetch pairs")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	response.Pairs = pairsData
+
+	h.logger.Info().
+		Str("handler", "combined_analytics").
+		Int("timeline_points", len(response.Timeline)).
+		Int("top_givers", len(response.TopGivers)).
+		Int("top_recipients", len(response.TopRecipients)).
+		Int("heatmap_days", len(response.Heatmap)).
+		Int("pairs", len(response.Pairs)).
+		Msg("request completed")
+
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		h.logger.Error().Str("handler", "combined_analytics").Err(err).Msg("failed to encode response")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 }

@@ -24,11 +24,12 @@ interface TimelinePoint {
 interface ActivityChartProps {
   startDate: string;
   endDate: string;
+  preloadedData?: Array<{ date: string; given: number; received: number }>;
 }
 
-export function ActivityChart({ startDate, endDate }: ActivityChartProps) {
+export function ActivityChart({ startDate, endDate, preloadedData }: ActivityChartProps) {
   const [data, setData] = useState<TimelinePoint[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!preloadedData);
   const [error, setError] = useState<string | null>(null);
   const [granularity, setGranularity] = useState<Granularity>("day");
 
@@ -37,6 +38,15 @@ export function ActivityChart({ startDate, endDate }: ActivityChartProps) {
       setLoading(true);
       setError(null);
       try {
+        // If preloaded data is provided AND granularity is still "day", use it
+        if (preloadedData && granularity === "day") {
+          // Preloaded data is already in the correct format
+          setData(preloadedData);
+          setLoading(false);
+          return;
+        }
+
+        // Otherwise fetch from API (either no preloaded data, or granularity changed)
         const params = new URLSearchParams({
           start: startDate,
           end: endDate,
@@ -53,7 +63,7 @@ export function ActivityChart({ startDate, endDate }: ActivityChartProps) {
       }
     }
     fetchData();
-  }, [startDate, endDate, granularity]);
+  }, [startDate, endDate, granularity, preloadedData]);
 
   const colors = defaultChartColors;
 

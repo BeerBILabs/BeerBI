@@ -21,6 +21,7 @@ interface HeatmapPoint {
 interface ActivityHeatmapProps {
   startDate: string;
   endDate: string;
+  preloadedData?: Array<{ date: string; count: number }>;
 }
 
 // Get day of week (0 = Sunday, 6 = Saturday)
@@ -38,9 +39,9 @@ function getWeekKey(dateStr: string): string {
 }
 
 
-export function ActivityHeatmap({ startDate, endDate }: ActivityHeatmapProps) {
+export function ActivityHeatmap({ startDate, endDate, preloadedData }: ActivityHeatmapProps) {
   const [data, setData] = useState<HeatmapPoint[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!preloadedData);
   const [error, setError] = useState<string | null>(null);
   const [tooltip, setTooltip] = useState<TooltipState>({
     visible: false,
@@ -69,6 +70,12 @@ export function ActivityHeatmap({ startDate, endDate }: ActivityHeatmapProps) {
   }, []);
 
   useEffect(() => {
+    if (preloadedData) {
+      setData(preloadedData);
+      setLoading(false);
+      return;
+    }
+
     async function fetchData() {
       setLoading(true);
       setError(null);
@@ -85,7 +92,7 @@ export function ActivityHeatmap({ startDate, endDate }: ActivityHeatmapProps) {
       }
     }
     fetchData();
-  }, [startDate, endDate]);
+  }, [startDate, endDate, preloadedData]);
 
   const colors = defaultChartColors;
 

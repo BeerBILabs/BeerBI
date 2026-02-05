@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import { ChartContainer } from "./ChartContainer";
 import { defaultChartColors, formatNumber } from "@/lib/chartTheme";
+import { userDataManager } from "@/lib/userCache";
 
 interface TopUserStats {
   userId: string;
@@ -29,6 +30,7 @@ interface LeaderboardChartProps {
   endDate: string;
   type: "givers" | "recipients";
   limit?: number;
+  preloadedData?: Array<{ userId: string; count: number }>; // Backend uses camelCase
 }
 
 export function LeaderboardChart({
@@ -36,10 +38,11 @@ export function LeaderboardChart({
   endDate,
   type,
   limit = 10,
+  preloadedData,
 }: LeaderboardChartProps) {
   const [data, setData] = useState<TopUserStats[]>([]);
   const [names, setNames] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!preloadedData);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -47,35 +50,42 @@ export function LeaderboardChart({
       setLoading(true);
       setError(null);
       try {
-        const params = new URLSearchParams({
-          start: startDate,
-          end: endDate,
-          limit: limit.toString(),
-        });
-        const resp = await fetch(`/api/proxy/stats/top?${params}`);
-        if (!resp.ok) throw new Error("Failed to fetch top users");
-        const json: TopUsersResult = await resp.json();
-        const users = type === "givers" ? json.givers : json.recipients;
+        let users: TopUserStats[];
+
+        if (preloadedData) {
+          // Use preloaded data directly (already in correct format)
+          users = preloadedData;
+        } else {
+          // Fetch from API
+          const params = new URLSearchParams({
+            start: startDate,
+            end: endDate,
+            limit: limit.toString(),
+          });
+          const resp = await fetch(`/api/proxy/stats/top?${params}`);
+          if (!resp.ok) throw new Error("Failed to fetch top users");
+          const json: TopUsersResult = await resp.json();
+          users = type === "givers" ? json.givers : json.recipients;
+        }
+
         setData(users || []);
 
-        // Fetch names for users
-        const nameMap: Record<string, string> = {};
-        await Promise.all(
-          (users || []).slice(0, 10).map(async (u) => {
-            try {
-              const userResp = await fetch(`/api/proxy/user?user=${encodeURIComponent(u.userId)}`);
-              if (userResp.ok) {
-                const userData = await userResp.json();
-                nameMap[u.userId] = userData.real_name || u.userId;
-              } else {
-                nameMap[u.userId] = u.userId;
-              }
-            } catch {
-              nameMap[u.userId] = u.userId;
+        // Batch fetch user names using UserDataManager
+        const userIds = (users || []).slice(0, 10).map((u) => u.userId);
+        if (userIds.length > 0) {
+          const userInfos = await userDataManager.getUsers(userIds);
+          const nameMap: Record<string, string> = {};
+          for (const [userId, info] of Object.entries(userInfos)) {
+            nameMap[userId] = info.real_name;
+          }
+          // Fill in any missing users with userId as fallback
+          for (const userId of userIds) {
+            if (!nameMap[userId]) {
+              nameMap[userId] = userId;
             }
-          })
-        );
-        setNames(nameMap);
+          }
+          setNames(nameMap);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "An error occurred");
       } finally {
@@ -83,7 +93,7 @@ export function LeaderboardChart({
       }
     }
     fetchData();
-  }, [startDate, endDate, type, limit]);
+  }, [startDate, endDate, type, limit, preloadedData]);
 
   const colors = defaultChartColors;
   const barColor = type === "givers" ? colors.given : colors.received;

@@ -3,14 +3,6 @@ name: Backend - Build and Push Docker Image
 on:
   push:
     tags: [ 'backend-v*' ]
-    paths:
-      - 'backend/**'
-      - '.github/workflows/docker-backend.yml'
-  pull_request:
-    branches: [ main ]
-    paths:
-      - 'backend/**'
-      - '.github/workflows/docker-backend.yml'
   workflow_dispatch:
 
 env:

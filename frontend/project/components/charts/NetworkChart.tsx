@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ChartContainer } from "./ChartContainer";
 import { defaultChartColors } from "@/lib/chartTheme";
+import { userDataManager } from "@/lib/userCache";
 
 interface PairStats {
   giver: string;
@@ -14,12 +15,13 @@ interface NetworkChartProps {
   startDate: string;
   endDate: string;
   limit?: number;
+  preloadedData?: Array<{ giver: string; recipient: string; count: number }>;
 }
 
-export function NetworkChart({ startDate, endDate, limit = 20 }: NetworkChartProps) {
+export function NetworkChart({ startDate, endDate, limit = 20, preloadedData }: NetworkChartProps) {
   const [data, setData] = useState<PairStats[]>([]);
   const [names, setNames] = useState<Record<string, string>>({});
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!preloadedData);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -27,40 +29,46 @@ export function NetworkChart({ startDate, endDate, limit = 20 }: NetworkChartPro
       setLoading(true);
       setError(null);
       try {
-        const params = new URLSearchParams({
-          start: startDate,
-          end: endDate,
-          limit: limit.toString(),
-        });
-        const resp = await fetch(`/api/proxy/stats/pairs?${params}`);
-        if (!resp.ok) throw new Error("Failed to fetch pair data");
-        const json = await resp.json();
-        setData(json || []);
+        let pairs: PairStats[];
 
-        // Fetch names for all users
+        if (preloadedData) {
+          pairs = preloadedData;
+        } else {
+          const params = new URLSearchParams({
+            start: startDate,
+            end: endDate,
+            limit: limit.toString(),
+          });
+          const resp = await fetch(`/api/proxy/stats/pairs?${params}`);
+          if (!resp.ok) throw new Error("Failed to fetch pair data");
+          const json = await resp.json();
+          pairs = json || [];
+        }
+
+        setData(pairs);
+
+        // Collect all unique user IDs
         const userIds = new Set<string>();
-        (json || []).forEach((p: PairStats) => {
+        pairs.forEach((p: PairStats) => {
           userIds.add(p.giver);
           userIds.add(p.recipient);
         });
 
-        const nameMap: Record<string, string> = {};
-        await Promise.all(
-          Array.from(userIds).map(async (userId) => {
-            try {
-              const userResp = await fetch(`/api/proxy/user?user=${encodeURIComponent(userId)}`);
-              if (userResp.ok) {
-                const userData = await userResp.json();
-                nameMap[userId] = userData.real_name || userId;
-              } else {
-                nameMap[userId] = userId;
-              }
-            } catch {
+        // Batch fetch user names using UserDataManager
+        if (userIds.size > 0) {
+          const userInfos = await userDataManager.getUsers(Array.from(userIds));
+          const nameMap: Record<string, string> = {};
+          for (const [userId, info] of Object.entries(userInfos)) {
+            nameMap[userId] = info.real_name;
+          }
+          // Fill in any missing users with userId as fallback
+          for (const userId of userIds) {
+            if (!nameMap[userId]) {
               nameMap[userId] = userId;
             }
-          })
-        );
-        setNames(nameMap);
+          }
+          setNames(nameMap);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "An error occurred");
       } finally {
@@ -68,7 +76,7 @@ export function NetworkChart({ startDate, endDate, limit = 20 }: NetworkChartPro
       }
     }
     fetchData();
-  }, [startDate, endDate, limit]);
+  }, [startDate, endDate, limit, preloadedData]);
 
   const colors = defaultChartColors;
 
