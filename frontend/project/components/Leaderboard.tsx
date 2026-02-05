@@ -4,11 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import Image from "next/image";
 import { RankChangeIndicator } from "./RankChangeIndicator";
 import { getQuarterDates, getPreviousQuarter } from "@/lib/quarters";
-import {
-  getUserCache,
-  getCachedUser,
-  setCachedUser,
-} from "@/lib/userCache";
+import { userDataManager, type CachedUserInfo } from "@/lib/userCache";
 
 interface LeaderboardProps {
   year?: number | null;
@@ -220,21 +216,6 @@ export function Leaderboard({
       setError(null);
 
       try {
-        // Fetch all users first
-        const [giversResp, recipientsResp] = await Promise.all([
-          fetch("/api/proxy/givers"),
-          fetch("/api/proxy/recipients"),
-        ]);
-
-        if (!giversResp.ok || !recipientsResp.ok) {
-          throw new Error("Failed to fetch users");
-        }
-
-        const allGivers: string[] = await giversResp.json();
-        const allRecipients: string[] = await recipientsResp.json();
-
-        if (cancelled) return;
-
         // Calculate date range for current period
         let dateParams = "";
         if (dateRange) {
@@ -249,56 +230,23 @@ export function Leaderboard({
           dateParams = `&start=2020-01-01&end=${today}`;
         }
 
-        // Fetch stats for current period
-        async function fetchStats(
-          users: string[],
-          type: "Givers" | "Recipients",
-          params: string
-        ): Promise<UserStats[]> {
-          const path = type === "Givers" ? "/api/proxy/given" : "/api/proxy/received";
-          const results: UserStats[] = [];
-
-          const concurrency = 5;
-          let idx = 0;
-
-          async function worker() {
-            while (idx < users.length && !cancelled) {
-              const i = idx++;
-              const userId = users[i];
-              try {
-                const resp = await fetch(`${path}?user=${encodeURIComponent(userId)}${params}`);
-                if (!resp.ok) {
-                  results.push({ userId, count: 0 });
-                  continue;
-                }
-                const data = await resp.json();
-                const count = type === "Givers" ? data.given : data.received;
-                results.push({ userId, count });
-              } catch {
-                results.push({ userId, count: 0 });
-              }
-            }
-          }
-
-          const workers: Promise<void>[] = [];
-          for (let i = 0; i < concurrency; i++) {
-            workers.push(worker());
-          }
-          await Promise.all(workers);
-
-          // Sort by count descending, filter out zeros, limit to top 100
-          return results
-            .sort((a, b) => b.count - a.count)
-            .filter((u) => u.count > 0)
-            .slice(0, 100);
+        // Fetch top users using aggregated endpoint (replaces per-user stats fetching)
+        const params = dateParams.replace(/^&/, "");
+        const topResp = await fetch(`/api/proxy/stats/top?limit=100&${params}`);
+        
+        if (!topResp.ok) {
+          throw new Error("Failed to fetch top users");
         }
 
-        const [currentGivers, currentRecipients] = await Promise.all([
-          fetchStats(allGivers, "Givers", dateParams),
-          fetchStats(allRecipients, "Recipients", dateParams),
-        ]);
+        const topData: {
+          givers: UserStats[];
+          recipients: UserStats[];
+        } = await topResp.json();
 
         if (cancelled) return;
+
+        const currentGivers = topData.givers || [];
+        const currentRecipients = topData.recipients || [];
 
         // If showing rank changes, fetch previous quarter data
         let prevGivers: Record<string, number> = {};
@@ -307,22 +255,26 @@ export function Leaderboard({
         if (showRankChange && year !== null && quarter !== null) {
           const prev = getPreviousQuarter(year, quarter);
           const { start: prevStart, end: prevEnd } = getQuarterDates(prev.year, prev.quarter);
-          const prevParams = `&start=${prevStart}&end=${prevEnd}`;
+          const prevParams = `start=${prevStart}&end=${prevEnd}`;
 
-          const [prevGiverStats, prevRecipientStats] = await Promise.all([
-            fetchStats(allGivers, "Givers", prevParams),
-            fetchStats(allRecipients, "Recipients", prevParams),
-          ]);
+          const prevResp = await fetch(`/api/proxy/stats/top?limit=100&${prevParams}`);
+          
+          if (prevResp.ok) {
+            const prevData: {
+              givers: UserStats[];
+              recipients: UserStats[];
+            } = await prevResp.json();
 
-          if (cancelled) return;
+            if (cancelled) return;
 
-          // Build rank maps (1-indexed)
-          prevGivers = Object.fromEntries(
-            prevGiverStats.map((u, i) => [u.userId, i + 1])
-          );
-          prevRecipients = Object.fromEntries(
-            prevRecipientStats.map((u, i) => [u.userId, i + 1])
-          );
+            // Build rank maps (1-indexed)
+            prevGivers = Object.fromEntries(
+              (prevData.givers || []).map((u, i) => [u.userId, i + 1])
+            );
+            prevRecipients = Object.fromEntries(
+              (prevData.recipients || []).map((u, i) => [u.userId, i + 1])
+            );
+          }
         }
 
         if (cancelled || !mounted.current) return;
@@ -332,70 +284,38 @@ export function Leaderboard({
         setPrevGiverRanks(prevGivers);
         setPrevRecipientRanks(prevRecipients);
 
-        // Fetch names and avatars for all unique users
-        const allUsers = new Set([
+        // Fetch user info for all unique users in batch (atomic rendering)
+        const allUserIds = new Set([
           ...currentGivers.map((u) => u.userId),
           ...currentRecipients.map((u) => u.userId),
         ]);
 
+        if (allUserIds.size === 0) {
+          setLoading(false);
+          return;
+        }
+
+        // Batch fetch all user data
+        const userInfos = await userDataManager.getUsers(Array.from(allUserIds));
+
+        if (cancelled || !mounted.current) return;
+
+        // Convert to names and avatars maps
         const namesOut: Record<string, string> = {};
         const avatarsOut: Record<string, string | null> = {};
 
-        const userList = Array.from(allUsers);
-        let userIdx = 0;
+        for (const [userId, info] of Object.entries(userInfos)) {
+          namesOut[userId] = info.real_name;
+          avatarsOut[userId] = info.profile_image;
+        }
 
-        async function fetchUserInfo() {
-          while (userIdx < userList.length && !cancelled) {
-            const i = userIdx++;
-            const userId = userList[i];
-
-            // Check cache first
-            const cached = getCachedUser(userId);
-            if (cached) {
-              namesOut[userId] = cached.real_name;
-              avatarsOut[userId] = cached.profile_image;
-              continue;
-            }
-
-            try {
-              const resp = await fetch(`/api/proxy/user?user=${encodeURIComponent(userId)}`);
-              if (!resp.ok) {
-                const expiredCache = getUserCache()[userId];
-                if (expiredCache) {
-                  namesOut[userId] = expiredCache.real_name;
-                  avatarsOut[userId] = expiredCache.profile_image;
-                } else {
-                  namesOut[userId] = userId;
-                  avatarsOut[userId] = null;
-                }
-                continue;
-              }
-              const data = await resp.json();
-              const realName = data.real_name || userId;
-              const profileImage = data.profile_image || null;
-              namesOut[userId] = realName;
-              avatarsOut[userId] = profileImage;
-              if (data.real_name) {
-                setCachedUser(userId, realName, profileImage);
-              }
-            } catch {
-              const expiredCache = getUserCache()[userId];
-              if (expiredCache) {
-                namesOut[userId] = expiredCache.real_name;
-                avatarsOut[userId] = expiredCache.profile_image;
-              } else {
-                namesOut[userId] = userId;
-                avatarsOut[userId] = null;
-              }
-            }
+        // Fill in any missing users with userId as fallback
+        for (const userId of allUserIds) {
+          if (!namesOut[userId]) {
+            namesOut[userId] = userId;
+            avatarsOut[userId] = null;
           }
         }
-
-        const userWorkers: Promise<void>[] = [];
-        for (let i = 0; i < 5; i++) {
-          userWorkers.push(fetchUserInfo());
-        }
-        await Promise.all(userWorkers);
 
         if (cancelled || !mounted.current) return;
 

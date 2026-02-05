@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import { ChartContainer } from "./ChartContainer";
 import { defaultChartColors, formatNumber } from "@/lib/chartTheme";
+import { userDataManager } from "@/lib/userCache";
 
 interface TopUserStats {
   userId: string;
@@ -58,24 +59,22 @@ export function LeaderboardChart({
         const users = type === "givers" ? json.givers : json.recipients;
         setData(users || []);
 
-        // Fetch names for users
-        const nameMap: Record<string, string> = {};
-        await Promise.all(
-          (users || []).slice(0, 10).map(async (u) => {
-            try {
-              const userResp = await fetch(`/api/proxy/user?user=${encodeURIComponent(u.userId)}`);
-              if (userResp.ok) {
-                const userData = await userResp.json();
-                nameMap[u.userId] = userData.real_name || u.userId;
-              } else {
-                nameMap[u.userId] = u.userId;
-              }
-            } catch {
-              nameMap[u.userId] = u.userId;
+        // Batch fetch user names using UserDataManager
+        const userIds = (users || []).slice(0, 10).map((u) => u.userId);
+        if (userIds.length > 0) {
+          const userInfos = await userDataManager.getUsers(userIds);
+          const nameMap: Record<string, string> = {};
+          for (const [userId, info] of Object.entries(userInfos)) {
+            nameMap[userId] = info.real_name;
+          }
+          // Fill in any missing users with userId as fallback
+          for (const userId of userIds) {
+            if (!nameMap[userId]) {
+              nameMap[userId] = userId;
             }
-          })
-        );
-        setNames(nameMap);
+          }
+          setNames(nameMap);
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : "An error occurred");
       } finally {
