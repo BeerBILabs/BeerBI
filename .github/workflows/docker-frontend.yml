@@ -3,14 +3,6 @@ name: Frontend - Build and Push Docker Image
 on:
   push:
     tags: [ 'frontend-v*' ]
-    paths:
-      - 'frontend/**'
-      - '.github/workflows/docker-frontend.yml'
-  pull_request:
-    branches: [ main ]
-    paths:
-      - 'frontend/**'
-      - '.github/workflows/docker-frontend.yml'
   workflow_dispatch:
 
 env:
