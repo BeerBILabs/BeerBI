@@ -70,15 +70,10 @@ export function setCachedUsers(
 class UserDataManager {
   private static instance: UserDataManager;
   private inFlightRequests: Map<string, Promise<CachedUserInfo | null>>;
-  private batchQueue: Set<string>;
-  private batchTimeout: NodeJS.Timeout | null;
-  private readonly BATCH_DELAY_MS = 10; // Collect requests for 10ms before batching
   private readonly BATCH_SIZE = 100; // Max 100 IDs per batch request
 
   private constructor() {
     this.inFlightRequests = new Map();
-    this.batchQueue = new Set();
-    this.batchTimeout = null;
   }
 
   static getInstance(): UserDataManager {
