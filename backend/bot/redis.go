@@ -407,8 +407,8 @@ func (r *RedisUserCache) calculateActiveRanges() []string {
 	// Last 7 days
 	ranges = append(ranges, RangeLast7Days)
 
-	// Last quarter (if we're in first month of a quarter, also update last quarter)
-	if now.Month()%3 == OVERLAP_MONTH_IN_QUARTER && now.Day() <= OVERLAP_DAYS_LAST_QUARTER {
+	// Last quarter (if we're in the configured overlap month of a quarter, also update last quarter)
+	if ((int(now.Month())-1)%3)+1 == OVERLAP_MONTH_IN_QUARTER && now.Day() <= OVERLAP_DAYS_LAST_QUARTER {
 		ranges = append(ranges, RangeLastQuarter)
 	}
 
