@@ -10,12 +10,13 @@ import { HeatmapTooltip, type HeatmapTooltipHandle } from "./HeatmapTooltip";
 interface ActivityHeatmapProps {
   startDate: string;
   endDate: string;
-  preloadedData?: Array<{ date: string; count: number }>;
+  /** `null` is what the backend sends for an empty range: nothing to fetch, nothing to show. */
+  preloadedData?: Array<{ date: string; count: number }> | null;
 }
 
 export function ActivityHeatmap({ startDate, endDate, preloadedData }: ActivityHeatmapProps) {
   const [data, setData] = useState<HeatmapPoint[]>([]);
-  const [loading, setLoading] = useState(!preloadedData);
+  const [loading, setLoading] = useState(preloadedData === undefined);
   const [error, setError] = useState<string | null>(null);
 
   // The tooltip lives in its own component and is driven through this ref, so hovering a
@@ -29,28 +30,35 @@ export function ActivityHeatmap({ startDate, endDate, preloadedData }: ActivityH
   }, []);
 
   useEffect(() => {
-    if (preloadedData) {
-      setData(preloadedData);
+    if (preloadedData !== undefined) {
+      setData(preloadedData ?? []);
       setLoading(false);
       return;
     }
+
+    // Ignore the response of a superseded request (range changed or unmounted meanwhile).
+    const controller = new AbortController();
 
     async function fetchData() {
       setLoading(true);
       setError(null);
       try {
         const params = new URLSearchParams({ start: startDate, end: endDate });
-        const resp = await fetch(`/api/proxy/stats/heatmap?${params}`);
+        const resp = await fetch(`/api/proxy/stats/heatmap?${params}`, { signal: controller.signal });
         if (!resp.ok) throw new Error("Failed to fetch heatmap data");
         const json = await resp.json();
+        if (controller.signal.aborted) return;
         setData(json || []);
       } catch (err) {
+        if (controller.signal.aborted) return;
         setError(err instanceof Error ? err.message : "An error occurred");
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     }
     fetchData();
+
+    return () => controller.abort();
   }, [startDate, endDate, preloadedData]);
 
   const colors = defaultChartColors;

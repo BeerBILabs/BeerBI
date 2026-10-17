@@ -1,4 +1,4 @@
-import { generateDateRange, parseLocalDate } from "@/lib/dateUtils";
+import { formatLocalDate, generateDateRange, parseLocalDate } from "@/lib/dateUtils";
 
 export interface HeatmapPoint {
   date: string;
@@ -28,14 +28,11 @@ export function cellKey(weekKey: string, dayOfWeek: number): string {
   return `${weekKey}:${dayOfWeek}`;
 }
 
-// Get week key with year prefix to avoid collisions across years
+// A column is one calendar week (Sunday to Saturday), keyed by the date of its Sunday.
+// Local-date arithmetic keeps this correct across DST changes and year boundaries, so a week
+// that spans New Year stays in one column.
 function getWeekKey(date: Date): string {
-  const startOfYear = new Date(date.getFullYear(), 0, 1);
-  // Round, don't floor: local midnights are 23 h apart across the spring DST change, and flooring
-  // would move every summer Sunday into the previous week's column (and drop one Sunday per year).
-  const days = Math.round((date.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000));
-  const week = Math.floor((days + startOfYear.getDay()) / 7);
-  return `${date.getFullYear()}-W${week}`;
+  return formatLocalDate(new Date(date.getFullYear(), date.getMonth(), date.getDate() - date.getDay()));
 }
 
 /** Colour bucket for a count: 0 for empty, otherwise 1-4 relative to the busiest day. */

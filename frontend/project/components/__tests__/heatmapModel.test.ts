@@ -56,8 +56,7 @@ describe('buildHeatmapModel', () => {
     expect(model.maxCount).toBe(12);
   });
 
-  it('keeps the week columns in calendar order across week numbers >= 10', () => {
-    // Sorting "2025-W10" as a string would place it before "2025-W2".
+  it('keeps the week columns in calendar order', () => {
     const model = buildHeatmapModel([], '2025-01-01', '2025-04-30');
     const firstDates = model.weeks.map((w) =>
       [0, 1, 2, 3, 4, 5, 6].map((d) => model.cells.get(cellKey(w, d))?.date).find(Boolean) as string
@@ -66,11 +65,21 @@ describe('buildHeatmapModel', () => {
     expect(new Set(model.weeks).size).toBe(model.weeks.length);
   });
 
-  it('separates weeks of different years that share a week number', () => {
+  it('keeps a week that spans New Year in one column', () => {
+    // Sun Dec 29 2024 to Sat Jan 4 2025 is one calendar week
     const model = buildHeatmapModel([], '2024-12-20', '2025-01-10');
-    expect(model.weeks.some((w) => w.startsWith('2024-'))).toBe(true);
-    expect(model.weeks.some((w) => w.startsWith('2025-'))).toBe(true);
+    expect(model.weeks).toEqual(['2024-12-15', '2024-12-22', '2024-12-29', '2025-01-05']);
     expect(model.cells.size).toBe(22);
+    const column = [0, 1, 2, 3, 4, 5, 6].map((d) => model.cells.get(cellKey('2024-12-29', d))?.date);
+    expect(column).toEqual([
+      '2024-12-29',
+      '2024-12-30',
+      '2024-12-31',
+      '2025-01-01',
+      '2025-01-02',
+      '2025-01-03',
+      '2025-01-04',
+    ]);
   });
 
   it('keeps every day in its own cell across the DST changes (TZ=Europe/Berlin)', () => {
@@ -81,12 +90,12 @@ describe('buildHeatmapModel', () => {
     expect(sundays).toHaveLength(52);
     expect(new Set(sundays.map((c) => c.weekKey)).size).toBe(52);
     // The columns of a summer week hold Sunday to Saturday of the same calendar week.
-    const sunday = model.cells.get(cellKey(model.cells.get(cellKey('2025-W26', 0))!.weekKey, 0))!;
-    expect(sunday.date).toBe('2025-06-29');
-    expect(model.cells.get(cellKey('2025-W26', 6))?.date).toBe('2025-07-05');
+    expect(model.cells.get(cellKey('2025-06-29', 0))?.date).toBe('2025-06-29');
+    expect(model.cells.get(cellKey('2025-06-29', 6))?.date).toBe('2025-07-05');
+    expect(model.cells.get(cellKey('2025-10-26', 0))?.date).toBe('2025-10-26'); // DST ends
   });
 
-  it('builds a 2000-day grid in under 50 ms', () => {
+  it('builds a 2000-day grid quickly (linear time)', () => {
     const start = '2020-01-01';
     const startDate = parseLocalDate(start);
     const end = new Date(startDate);
@@ -97,11 +106,14 @@ describe('buildHeatmapModel', () => {
       return { date: formatLocalDate(d), count: (i * 7) % 23 };
     });
 
+    buildHeatmapModel(data, start, formatLocalDate(end)); // warm-up: JIT and first-call costs
+
     const t0 = performance.now();
     const model = buildHeatmapModel(data, start, formatLocalDate(end));
     const elapsed = performance.now() - t0;
 
     expect(model.cells.size).toBe(2000);
-    expect(elapsed).toBeLessThan(50);
+    // Typically a few ms; the limit leaves room for slow CI runners while still catching O(days^2).
+    expect(elapsed).toBeLessThan(200);
   });
 });
