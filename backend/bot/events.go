@@ -52,7 +52,13 @@ func (ep *EventProcessor) HandleEvent(evt socketmode.Event) {
 			return
 		}
 		if socketClient := ep.slackManager.GetSocketClient(); socketClient != nil {
-			socketClient.Ack(*evt.Request)
+			// Since slack-go v0.21 Ack returns an error (response >= 20KB or cancelled
+			// context). An empty ack cannot hit either, but log it instead of dropping it.
+			// Processing continues as before: a lost ack only causes a redelivery, which
+			// the deduplication below handles.
+			if err := socketClient.Ack(*evt.Request); err != nil {
+				ep.logger.Error().Err(err).Str("envelopeID", evt.Request.EnvelopeID).Msg("failed to ack event")
+			}
 		} else {
 			ep.logger.Warn().Msg("socket client is nil, cannot ack event")
 			return
