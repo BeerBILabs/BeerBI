@@ -115,7 +115,7 @@ export function QuarterlyChart({ startYear, endYear }: QuarterlyChartProps) {
               }}
               labelStyle={{ color: "hsl(var(--card-foreground))" }}
               itemStyle={{ color: "hsl(var(--card-foreground))" }}
-              formatter={(value: number) => [`${value}`, "Beers"]}
+              formatter={(value) => [`${value}`, "Beers"]}
               cursor={{ fill: "hsl(var(--accent))" }}
             />
             <Bar

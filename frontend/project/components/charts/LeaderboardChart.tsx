@@ -142,7 +142,7 @@ export function LeaderboardChart({
               }}
               labelStyle={{ color: "hsl(var(--card-foreground))" }}
               itemStyle={{ color: "hsl(var(--card-foreground))" }}
-              formatter={(value: number) => [`${value}`, "Beers"]}
+              formatter={(value) => [`${value}`, "Beers"]}
               cursor={{ fill: "hsl(var(--accent))" }}
             />
             <Bar dataKey="count" radius={[0, 4, 4, 0]}>

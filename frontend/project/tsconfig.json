@@ -8,7 +8,7 @@
     ],
     "allowJs": true,
     "skipLibCheck": true,
-    "strict": false,
+    "strict": true,
     "noEmit": true,
     "incremental": true,
     "module": "esnext",
@@ -27,7 +27,6 @@
         "./*"
       ]
     },
-    "strictNullChecks": true,
     "forceConsistentCasingInFileNames": true
   },
   "include": [

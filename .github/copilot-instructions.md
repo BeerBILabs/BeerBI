@@ -90,11 +90,11 @@ Chart components live in `components/charts/`. Shared utilities in `lib/` (userC
 
 `ActivityHeatmap` is split so hovering never re-renders the grid: `heatmapModel.ts` builds the cells once (`Map` keyed by week and weekday, O(days)), `HeatmapGrid` is a `React.memo` component fed only the model and stable callbacks, and `HeatmapTooltip` owns the tooltip state and is driven through a ref.
 
-Bundle: the Recharts chart components are loaded with `next/dynamic` (`ssr: false`, `ChartSkeleton` as placeholder) in `app/analytics/page.tsx`; do not import `components/charts/index.ts` from other pages. `DateRangePicker` uses two native `<input type="date">` (no date library). Run `bun run analyze` in `frontend/project` for a bundle report (`@next/bundle-analyzer`, `ANALYZE=true`, webpack build, output in `.next/analyze/`).
+Bundle: the Recharts chart components are loaded with `next/dynamic` (`ssr: false`, `ChartSkeleton` as placeholder) in `app/analytics/page.tsx`; do not import `components/charts/index.ts` from other pages. `DateRangePicker` uses two native `<input type="date">` (no date library). The production build uses `output: 'standalone'` (the release image copies `.next/standalone`; `bun run start` still works but prints a warning, the image runs `server.js`). Run `bun run analyze` in `frontend/project` for a bundle report (`@next/bundle-analyzer`, `ANALYZE=true`, webpack build, output in `.next/analyze/`).
 
 ### Theme System
 
-`app/globals.css` defines HSL CSS custom properties for light/dark modes. Beer-themed golden accent (`#d4a84b`). Theme is stored in a cookie (read server-side in layout.tsx to prevent FOUC). All color references should use the CSS variables (e.g., `hsl(var(--primary))`), not hardcoded values.
+`app/globals.css` defines HSL CSS custom properties for light/dark modes. Beer-themed golden accent (`#d4a84b`). Theme is stored in the `theme` cookie (`light`/`dark`, one year, `SameSite=Lax`). It is written client-side only (`ThemeProvider` on the first visit, `useTheme().setTheme` on toggle; there is no server action) and read by the blocking `ThemeScript` and, for now, server-side in `layout.tsx` to prevent FOUC. All color references should use the CSS variables (e.g., `hsl(var(--primary))`), not hardcoded values.
 
 ## Important Patterns
 
@@ -140,6 +140,7 @@ Components fetch via `/api/proxy/{endpoint}`. The `Leaderboard.tsx` component us
 
 - Backend tests use `t.TempDir()` for SQLite files. Test files are `backend/bot/*_test.go`. Lint config: `backend/bot/.golangci.yml`.
 - Frontend tests live next to the code in `__tests__/` folders (`lib/__tests__`, `components/__tests__`) and use Vitest, jsdom and Testing Library. Config: `frontend/project/vitest.config.ts`. `TZ=Europe/Berlin` is forced for every run (`test/global-setup.ts`) so timezone bugs also fail on UTC runners; never format dates with `toISOString()`, use `formatLocalDate` from `lib/dateUtils.ts`.
+- `tsconfig.json` has `"strict": true`; keep it that way (no `any` to silence errors, no `@ts-ignore`).
 - TypeScript runs in two versions, as recommended for TS 7: `bun run typecheck` uses TypeScript 7 (`@typescript/native`, the native `tsc`), while the `typescript` package is aliased to `@typescript/typescript6` because Next's build-time type check and typescript-eslint need the TS 6 JavaScript API. Re-resolving the lockfile needs Bun >= 1.4 (older Bun mis-resolves the nested `npm:` alias). Drop the alias once TS 7.1 ships its API and the tools support it.
 - Coverage minimums are the env vars `BACKEND_COVERAGE_THRESHOLD` and `FRONTEND_COVERAGE_THRESHOLD` at the top of `ci.yml` (the frontend value is also the default in `vitest.config.ts`). Raise them when tests are added.
 - Do not use `docker compose -f compose.test.yaml up --abort-on-container-exit`: the first service to finish stops the other. Use `just test`.
