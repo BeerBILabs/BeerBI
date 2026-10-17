@@ -1,6 +1,6 @@
 # use the official Bun image
 # see all versions at https://hub.docker.com/r/oven/bun/tags
-FROM oven/bun:1.3.8 AS base
+FROM oven/bun:1.4.3 AS base
 WORKDIR /usr/src/app
 
 # install dependencies into temp directory
@@ -32,7 +32,11 @@ RUN bun run build
 # Runs lint, typecheck, unit tests and the production build when the container starts.
 FROM base AS test
 # Vitest needs a real Node.js (jsdom does not work when Bun stands in for node).
-COPY --from=node:22-slim /usr/local/bin/node /usr/local/bin/node
+# Keep the major in line with the Node version Bun reports (process.version) and @types/node.
+COPY --from=node:26-slim /usr/local/bin/node /usr/local/bin/node
+# Node 26 links against libatomic, which the Bun image does not ship.
+RUN apt-get update && apt-get install -y --no-install-recommends libatomic1 && rm -rf /var/lib/apt/lists/* \
+    && node --version
 COPY --from=install /temp/dev/node_modules node_modules
 COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
