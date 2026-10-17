@@ -1,23 +1,29 @@
 "use client"
 
-import { useEffect, useState } from 'react'
+import { useState, useSyncExternalStore } from 'react'
 import { Sun, Moon } from 'lucide-react'
 import { useTheme } from './ThemeProvider'
 
+// The theme lives on <html class="dark">; subscribe to that instead of mirroring it in state.
+function subscribeToThemeClass(onChange: () => void) {
+  const observer = new MutationObserver(onChange)
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
+  return () => observer.disconnect()
+}
+
+function subscribeNever() {
+  return () => {}
+}
+
 export default function ThemeToggle() {
   const { toggleTheme, getTheme } = useTheme()
-  const [isDark, setIsDark] = useState(false)
   const [showTooltip, setShowTooltip] = useState(false)
-  const [mounted, setMounted] = useState(false)
-
-  useEffect(() => {
-    setMounted(true)
-    setIsDark(getTheme() === 'dark')
-  }, [getTheme])
+  // false while rendering on the server and during hydration, true afterwards
+  const mounted = useSyncExternalStore(subscribeNever, () => true, () => false)
+  const isDark = useSyncExternalStore(subscribeToThemeClass, () => getTheme() === 'dark', () => false)
 
   function onClick() {
     toggleTheme()
-    setIsDark((v) => !v)
   }
 
   // Don't render toggle until mounted to avoid hydration mismatch
