@@ -21,6 +21,15 @@ See [root README](../README.md) for full setup instructions.
 | `NEXT_PUBLIC_BACKEND_BASE` | ✅       | `http://localhost:8080` | Backend API base URL     |
 | `NEXT_PUBLIC_API_TOKEN`    | ✅       | -                       | API authentication token |
 
+## Bundle size
+
+```bash
+cd project
+bun run analyze   # ANALYZE=true next build --webpack, reports in .next/analyze/*.html
+```
+
+The chart components (Recharts, about 400 KB) are loaded on demand on `/analytics`; the date range picker uses native date inputs.
+
 ## Tests
 
 ```bash

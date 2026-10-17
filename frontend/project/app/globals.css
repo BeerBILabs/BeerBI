@@ -1,6 +1,5 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-@import "react-datepicker/dist/react-datepicker.css";
 
 html, body, #__next {
   height: 100%;
@@ -78,8 +77,11 @@ button:hover, .btn:hover {
     --chart-4: 43 74% 66%;
     --chart-5: 27 87% 67%;
     --radius: 0.5rem;
+    /* Native form controls (date picker popup, calendar icon) follow the theme */
+    color-scheme: light;
   }
   .dark {
+    color-scheme: dark;
     --background: 25 15% 8%;
     --foreground: 43 40% 96%;
     --card: 25 20% 12%;
@@ -144,60 +146,4 @@ button:hover, .btn:hover {
 .card {
   background-color: hsl(var(--card));
   color: hsl(var(--card-foreground));
-}
-
-/* React DatePicker token-based theming */
-/* Strengthened overrides so they beat package defaults */
-:root .react-datepicker,
-:root .react-datepicker__month-container,
-:root .react-datepicker__header,
-:root .react-datepicker__month,
-:root .react-datepicker__week,
-:root .react-datepicker__day,
-:root .react-datepicker__day-name,
-:root .react-datepicker__current-month {
-  background-color: hsl(var(--card)) !important;
-  color: hsl(var(--card-foreground)) !important;
-  border-color: hsl(var(--border)) !important;
-}
-
-:root .react-datepicker {
-  border: 1px solid hsl(var(--border)) !important;
-}
-
-:root .react-datepicker__header {
-  border-bottom: 1px solid hsl(var(--border)) !important;
-}
-
-:root .react-datepicker__day--outside-month {
-  color: hsl(var(--muted-foreground)) !important;
-}
-
-:root .react-datepicker__day--selected,
-:root .react-datepicker__day--keyboard-selected {
-  background-color: hsl(var(--primary)) !important;
-  color: hsl(var(--primary-foreground)) !important;
-}
-
-:root .react-datepicker__day:hover {
-  background-color: hsl(var(--accent)) !important;
-  color: hsl(var(--accent-foreground)) !important;
-}
-
-:root .react-datepicker__navigation-icon::before {
-  border-color: hsl(var(--card-foreground)) !important;
-}
-
-/* DatePicker input field styling with consistent transitions */
-:root .react-datepicker-wrapper,
-:root .react-datepicker__input-container,
-:root .react-datepicker__input-container input {
-  background-color: hsl(var(--card)) !important;
-  color: hsl(var(--card-foreground)) !important;
-  border-color: hsl(var(--border)) !important;
-  transition: color 250ms ease-in-out, background-color 250ms ease-in-out, border-color 250ms ease-in-out !important;
-}
-
-:root .react-datepicker__input-container input {
-  border: 1px solid hsl(var(--card)) !important;
 }

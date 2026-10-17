@@ -10,13 +10,15 @@ interface ChartContainerProps {
   error?: string | null;
   onRetry?: () => void;
   className?: string;
+  /** Tailwind height of the loading placeholder; match the chart to avoid layout shift. */
+  skeletonHeight?: string;
 }
 
-function LoadingSkeleton() {
+function LoadingSkeleton({ heightClass }: { heightClass: string }) {
   return (
     <div className="animate-pulse">
       <div
-        className="h-64 rounded-lg"
+        className={`${heightClass} rounded-lg`}
         style={{ backgroundColor: "hsl(var(--muted))" }}
       />
     </div>
@@ -31,6 +33,7 @@ export function ChartContainer({
   error = null,
   onRetry,
   className = "",
+  skeletonHeight = "h-64",
 }: ChartContainerProps) {
   return (
     <div
@@ -56,7 +59,7 @@ export function ChartContainer({
       )}
 
       {loading ? (
-        <LoadingSkeleton />
+        <LoadingSkeleton heightClass={skeletonHeight} />
       ) : error ? (
         <div className="text-center py-8">
           <p
@@ -82,5 +85,22 @@ export function ChartContainer({
         children
       )}
     </div>
+  );
+}
+
+/** Placeholder shown while a lazily loaded chart chunk is on its way (same card as the real chart). */
+export function ChartSkeleton({
+  title,
+  subtitle,
+  skeletonHeight,
+}: {
+  title: string;
+  subtitle?: string;
+  skeletonHeight?: string;
+}) {
+  return (
+    <ChartContainer title={title} subtitle={subtitle} skeletonHeight={skeletonHeight} loading>
+      {null}
+    </ChartContainer>
   );
 }
