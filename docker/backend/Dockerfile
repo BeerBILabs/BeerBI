@@ -22,7 +22,7 @@ FROM builder AS test
 CMD ["sh", "-c", "test -z \"$(gofmt -l .)\" || { echo 'gofmt needed:'; gofmt -l .; exit 1; }; go vet ./... && go test -race -cover ./..."]
 
 # Step 2: Create the final image
-FROM alpine:3.23
+FROM alpine:3.24
 RUN apk add --no-cache ca-certificates wget curl
 COPY --from=builder /bin/bot /bin/bot
 VOLUME /data
