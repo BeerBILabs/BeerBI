@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 
 // Minimum line coverage (%) over the files listed in `coverage.include`.
 // Raise it when more tests land; CI fails below this value.
-const COVERAGE_THRESHOLD = Number(process.env.FRONTEND_COVERAGE_THRESHOLD ?? 15);
+const COVERAGE_THRESHOLD = Number(process.env.FRONTEND_COVERAGE_THRESHOLD ?? 33);
 
 export default defineConfig({
   resolve: {
