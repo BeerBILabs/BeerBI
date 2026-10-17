@@ -88,6 +88,8 @@ Three main pages:
 
 Chart components live in `components/charts/`. Shared utilities in `lib/` (userCache, quarters, chartTheme).
 
+`ActivityHeatmap` is split so hovering never re-renders the grid: `heatmapModel.ts` builds the cells once (`Map` keyed by week and weekday, O(days)), `HeatmapGrid` is a `React.memo` component fed only the model and stable callbacks, and `HeatmapTooltip` owns the tooltip state and is driven through a ref.
+
 ### Theme System
 
 `app/globals.css` defines HSL CSS custom properties for light/dark modes. Beer-themed golden accent (`#d4a84b`). Theme is stored in a cookie (read server-side in layout.tsx to prevent FOUC). All color references should use the CSS variables (e.g., `hsl(var(--primary))`), not hardcoded values.
