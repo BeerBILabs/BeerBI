@@ -15,6 +15,12 @@ COPY . .
 # Build the application
 RUN go build -o /bin/bot ./
 
+# Test stage: used by compose.test.yaml (`just test`), never part of the final image.
+# gofmt, go vet and go test run when the container starts, so a failure makes it exit non-zero.
+# -race needs CGO (build-base is installed in the builder stage) and works on musl.
+FROM builder AS test
+CMD ["sh", "-c", "test -z \"$(gofmt -l .)\" || { echo 'gofmt needed:'; gofmt -l .; exit 1; }; go vet ./... && go test -race -cover ./..."]
+
 # Step 2: Create the final image
 FROM alpine:3.23
 RUN apk add --no-cache ca-certificates wget curl

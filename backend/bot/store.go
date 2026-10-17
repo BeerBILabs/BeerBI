@@ -94,7 +94,7 @@ func (s *SQLiteStore) migrate() error {
 	if err != nil {
 		return fmt.Errorf("migrate pragma: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var cid int
 		var name string
@@ -135,7 +135,7 @@ func (s *SQLiteStore) migrate() error {
 		}
 		// create new table with desired schema
 		if _, err := tx.Exec(desiredCreate); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("migrate create beers_new: %w", err)
 		}
 		// copy aggregated data into beers (treat missing count as 1 and compute ts_rfc if NULL)
@@ -145,17 +145,16 @@ func (s *SQLiteStore) migrate() error {
                 COALESCE(SUM(count), COUNT(1))
             FROM (SELECT * FROM beers) GROUP BY giver_id, recipient_id, ts;`
 		if _, err := tx.Exec(copyStmt); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("migrate copy aggregated: %w", err)
 		}
 		// drop old table and keep the new one under the original name
 		if _, err := tx.Exec(`DROP TABLE IF EXISTS beers;`); err != nil {
-			tx.Rollback()
+			_ = tx.Rollback()
 			return fmt.Errorf("migrate drop old beers: %w", err)
 		}
-		if _, err := tx.Exec(`ALTER TABLE beers RENAME TO beers_old;`); err == nil {
-			// if rename succeeded unexpectedly, try to rename back
-		}
+		// Best-effort rename, result intentionally ignored (dead code, see audit C5).
+		_, _ = tx.Exec(`ALTER TABLE beers RENAME TO beers_old;`)
 		// Note: desiredCreate created a table named 'beers' already; we dropped old table, so commit.
 		if err := tx.Commit(); err != nil {
 			return fmt.Errorf("migrate commit recreate: %w", err)
@@ -206,7 +205,7 @@ func (s *SQLiteStore) IncEmoji(userID, emoji string) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 
 	// try update
 	res, err := tx.Exec(`UPDATE emoji_counts SET count = count + 1 WHERE user_id = ? AND emoji = ?`, userID, emoji)
@@ -304,7 +303,7 @@ func (s *SQLiteStore) GetAllGivers() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []string
 	for rows.Next() {
 		var id string
@@ -322,7 +321,7 @@ func (s *SQLiteStore) GetAllRecipients() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []string
 	for rows.Next() {
 		var id string
@@ -427,7 +426,7 @@ func (s *SQLiteStore) GetTimelineStats(start, end time.Time, granularity string)
 		fmt.Printf("[STORE] GetTimelineStats query error: %v\n", err)
 		return nil, fmt.Errorf("timeline query: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var results []TimelinePoint
 	for rows.Next() {
@@ -473,7 +472,7 @@ func (s *SQLiteStore) GetQuarterlyStats(startYear, endYear int) ([]QuarterlyStat
 		fmt.Printf("[STORE] GetQuarterlyStats query error: %v\n", err)
 		return nil, fmt.Errorf("quarterly query: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var results []QuarterlyStats
 	for rows.Next() {
@@ -521,7 +520,7 @@ func (s *SQLiteStore) GetTopUsers(start, end time.Time, limit int) (*TopUsersRes
 		fmt.Printf("[STORE] GetTopUsers givers query error: %v\n", err)
 		return nil, fmt.Errorf("top givers query: %w", err)
 	}
-	defer giversRows.Close()
+	defer func() { _ = giversRows.Close() }()
 
 	var givers []TopUserStats
 	for giversRows.Next() {
@@ -546,7 +545,7 @@ func (s *SQLiteStore) GetTopUsers(start, end time.Time, limit int) (*TopUsersRes
 		fmt.Printf("[STORE] GetTopUsers recipients query error: %v\n", err)
 		return nil, fmt.Errorf("top recipients query: %w", err)
 	}
-	defer recipientsRows.Close()
+	defer func() { _ = recipientsRows.Close() }()
 
 	var recipients []TopUserStats
 	for recipientsRows.Next() {
@@ -587,7 +586,7 @@ func (s *SQLiteStore) GetHeatmapStats(start, end time.Time) ([]HeatmapPoint, err
 		fmt.Printf("[STORE] GetHeatmapStats query error: %v\n", err)
 		return nil, fmt.Errorf("heatmap query: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var results []HeatmapPoint
 	for rows.Next() {
@@ -630,7 +629,7 @@ func (s *SQLiteStore) GetPairStats(start, end time.Time, limit int) ([]PairStats
 		fmt.Printf("[STORE] GetPairStats query error: %v\n", err)
 		return nil, fmt.Errorf("pairs query: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var results []PairStats
 	for rows.Next() {

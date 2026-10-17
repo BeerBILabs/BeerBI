@@ -68,7 +68,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("open db: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	store, err := NewSQLiteStore(db)
 	if err != nil {
@@ -100,7 +100,7 @@ func main() {
 		zlogger.Warn().Err(err).Msg("redis connection failed, continuing without cache")
 		redisCache = nil // Graceful fallback - continue without Redis
 	} else {
-		defer redisCache.Close()
+		defer func() { _ = redisCache.Close() }()
 	}
 
 	// init Slack connection manager

@@ -1,0 +1,127 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_call:
+
+# Cancel superseded runs of the same ref (not for tags: release builds must finish).
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: read
+
+env:
+  # Minimum statement coverage (%) for the backend package and line coverage (%) for the frontend.
+  # Set to the current level; raise them as tests are added.
+  BACKEND_COVERAGE_THRESHOLD: 5
+  FRONTEND_COVERAGE_THRESHOLD: 15
+
+jobs:
+  changes:
+    name: Detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        # Only pull requests are filtered; pushes to main and release tags always run everything.
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - 'docker/backend/**'
+              - '.github/workflows/ci.yml'
+            frontend:
+              - 'frontend/**'
+              - 'docker/frontend/**'
+              - '.github/workflows/ci.yml'
+
+  backend:
+    name: Backend (Go)
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend/bot
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: backend/bot/go.mod
+          cache-dependency-path: backend/bot/go.sum
+
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "These files need gofmt:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: v2.5.0
+          working-directory: backend/bot
+
+      - name: Tests (race, coverage)
+        run: go test -race -count=1 -coverprofile=cover.out ./...
+
+      - name: Coverage threshold
+        run: |
+          total="$(go tool cover -func=cover.out | awk '/^total:/ {gsub("%","",$3); print $3}')"
+          echo "Backend coverage: ${total}% (minimum ${BACKEND_COVERAGE_THRESHOLD}%)"
+          awk -v t="$total" -v m="$BACKEND_COVERAGE_THRESHOLD" 'BEGIN { exit !(t+0 >= m+0) }' \
+            || { echo "::error::Backend coverage ${total}% is below ${BACKEND_COVERAGE_THRESHOLD}%"; exit 1; }
+
+  frontend:
+    name: Frontend (Next.js)
+    needs: changes
+    if: github.event_name != 'pull_request' || needs.changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend/project
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read Bun version from docker/frontend/Dockerfile
+        id: bun
+        working-directory: .
+        run: echo "version=$(sed -n 's|^FROM oven/bun:\([0-9.]*\) AS base|\1|p' docker/frontend/Dockerfile)" >> "$GITHUB_OUTPUT"
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ steps.bun.outputs.version }}
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Lint
+        run: bun run lint
+
+      - name: Unit tests (coverage)
+        run: bun run test:coverage
+
+      - name: Build
+        run: bun run build
+        env:
+          NEXT_PUBLIC_BACKEND_BASE: http://localhost:8080
+          NEXT_TELEMETRY_DISABLED: "1"
