@@ -1,16 +1,12 @@
-version: 1.54.2
+version: "2"
 
 run:
-  timeout: 10m
+  timeout: 5m
 
 linters:
+  # Standard set (errcheck, govet, ineffassign, staticcheck, unused) is on by default.
+  default: standard
+
+formatters:
   enable:
-    - govet
-    - errcheck
-    - staticcheck
     - gofmt
-    - gosimple
-    - ineffassign
-    - unused
-  disable:
-    - typecheck

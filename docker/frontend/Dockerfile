@@ -28,6 +28,16 @@ ENV NEXT_PRIVATE_STANDALONE=true
 
 RUN bun run build
 
+# test stage: used by compose.test.yaml (`just test`), never part of the final image.
+# Runs lint, typecheck, unit tests and the production build when the container starts.
+FROM base AS test
+# Vitest needs a real Node.js (jsdom does not work when Bun stands in for node).
+COPY --from=node:22-slim /usr/local/bin/node /usr/local/bin/node
+COPY --from=install /temp/dev/node_modules node_modules
+COPY . .
+ENV NEXT_TELEMETRY_DISABLED=1
+CMD ["sh", "-c", "bun run lint && bun run typecheck && bun run test && bun run build"]
+
 # copy production dependencies and source code into final image
 FROM base AS release
 

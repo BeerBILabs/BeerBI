@@ -3,6 +3,8 @@
  * Pure TypeScript, no external dependencies.
  */
 
+import { formatLocalDate } from './dateUtils';
+
 /**
  * Get the start and end dates for a given quarter.
  * @param year - The year (e.g., 2026)
@@ -20,8 +22,8 @@ export function getQuarterDates(
   const end = new Date(year, startMonth + 3, 0);
 
   return {
-    start: start.toISOString().split('T')[0],
-    end: end.toISOString().split('T')[0],
+    start: formatLocalDate(start),
+    end: formatLocalDate(end),
   };
 }
 

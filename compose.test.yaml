@@ -1,22 +1,23 @@
+# Run via `just test` (or the two `docker compose ... run` commands there).
+# Do not use `up --abort-on-container-exit`: the first service to finish would
+# stop the other one mid-run and hide its result.
 services:
   backend-test:
     build:
       context: ./backend/bot
       dockerfile: ../../docker/backend/Dockerfile
       target: test
-    volumes:
-      - ./backend/bot:/src
-      - ./backend/bot/data:/data
     networks:
       - beerbot-test
 
+  # Lint, typecheck, unit tests (TZ pinned in vitest config) and production build.
   frontend-test:
     build:
       context: ./frontend/project
       dockerfile: ../../docker/frontend/Dockerfile
+      target: test
     environment:
       NEXT_PUBLIC_BACKEND_BASE: "http://localhost:8080"
-    command: bun run build
     networks:
       - beerbot-test
 

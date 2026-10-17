@@ -10,6 +10,7 @@ const eslintConfig = [
       ".next/**",
       "out/**",
       "build/**",
+      "coverage/**",
     ],
   },
   ...tseslint.configs.recommended,

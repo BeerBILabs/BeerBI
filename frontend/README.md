@@ -20,3 +20,13 @@ See [root README](../README.md) for full setup instructions.
 |----------------------------|----------|-------------------------|--------------------------|
 | `NEXT_PUBLIC_BACKEND_BASE` | ✅       | `http://localhost:8080` | Backend API base URL     |
 | `NEXT_PUBLIC_API_TOKEN`    | ✅       | -                       | API authentication token |
+
+## Tests
+
+```bash
+cd project
+bun install --frozen-lockfile
+bun run test            # Vitest (TZ is forced to Europe/Berlin)
+bun run test:coverage   # with coverage and threshold
+bun run typecheck && bun run lint
+```

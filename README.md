@@ -71,8 +71,11 @@ just dev-logs
 # Stop development environment
 just dev-down
 
-# Run tests
+# Run all checks in containers (backend: gofmt, go vet, go test -race; frontend: lint, tsc, vitest, build)
 just test
+# ... or one side only
+just test-backend
+just test-frontend
 
 # Clean up all containers and volumes
 just clean

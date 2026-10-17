@@ -127,7 +127,18 @@ Components fetch via `/api/proxy/{endpoint}`. The `Leaderboard.tsx` component us
 
 ## Testing
 
-Backend tests use temporary SQLite files (cleaned up with `defer os.Remove()`). Test files are in `backend/bot/*_test.go`. The frontend is validated via build in `compose.test.yaml`.
+| Where | Command | What runs |
+|---|---|---|
+| Everything | `just test` | `compose.test.yaml`: backend then frontend, in containers |
+| Backend | `just test-backend` | `gofmt -l` (must be empty), `go vet`, `go test -race -cover` (Dockerfile stage `test`) |
+| Frontend | `just test-frontend` | `bun run lint`, `bun run typecheck`, `bun run test` (Vitest), `bun run build` (Dockerfile stage `test`) |
+| CI | `.github/workflows/ci.yml` | Same checks plus `golangci-lint` and coverage thresholds; runs on push to `main`, pull requests and (via `workflow_call`) before the tag-triggered Docker builds |
+
+- Backend tests use `t.TempDir()` for SQLite files. Test files are `backend/bot/*_test.go`. Lint config: `backend/bot/.golangci.yml`.
+- Frontend tests live next to the code in `__tests__/` folders (`lib/__tests__`, `components/__tests__`) and use Vitest, jsdom and Testing Library. Config: `frontend/project/vitest.config.ts`. `TZ=Europe/Berlin` is forced for every run (`test/global-setup.ts`) so timezone bugs also fail on UTC runners; never format dates with `toISOString()`, use `formatLocalDate` from `lib/dateUtils.ts`.
+- Coverage minimums are the env vars `BACKEND_COVERAGE_THRESHOLD` and `FRONTEND_COVERAGE_THRESHOLD` at the top of `ci.yml` (the frontend value is also the default in `vitest.config.ts`). Raise them when tests are added.
+- Do not use `docker compose -f compose.test.yaml up --abort-on-container-exit`: the first service to finish stops the other. Use `just test`.
+- Without `just`: `docker compose -f compose.test.yaml run --build --rm backend-test` and `... frontend-test`. Host Go cannot link CGO (sqlite3) on the maintainer's Mac, so run Go inside Docker.
 
 ## Guidelines
 

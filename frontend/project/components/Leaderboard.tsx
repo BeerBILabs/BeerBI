@@ -4,7 +4,8 @@ import { useEffect, useState, useRef } from "react";
 import Image from "next/image";
 import { RankChangeIndicator } from "./RankChangeIndicator";
 import { getQuarterDates, getPreviousQuarter } from "@/lib/quarters";
-import { userDataManager, type CachedUserInfo } from "@/lib/userCache";
+import { userDataManager } from "@/lib/userCache";
+import { formatLocalDate } from "@/lib/dateUtils";
 
 interface LeaderboardProps {
   year?: number | null;
@@ -226,7 +227,7 @@ export function Leaderboard({
           dateParams = `&start=${start}&end=${end}`;
         } else {
           // All-time view: use wide date range (backend requires date params)
-          const today = new Date().toISOString().split("T")[0];
+          const today = formatLocalDate(new Date());
           dateParams = `&start=2020-01-01&end=${today}`;
         }
 

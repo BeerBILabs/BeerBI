@@ -61,14 +61,20 @@ prod-logs-frontend:
 # Testing
 # =======
 
-# Run tests
-test:
-    docker compose -f compose.test.yaml up --build --abort-on-container-exit
+# Run all tests: backend (gofmt, vet, race tests) then frontend (lint, tsc, vitest, build)
+test: test-backend test-frontend
 
-# Run tests and remove containers
-test-clean:
-    docker compose -f compose.test.yaml up --build --abort-on-container-exit --remove-orphans
-    docker compose -f compose.test.yaml down
+# Run backend checks only
+test-backend:
+    docker compose -f compose.test.yaml run --build --rm backend-test
+
+# Run frontend checks only
+test-frontend:
+    docker compose -f compose.test.yaml run --build --rm frontend-test
+
+# Run tests and remove containers and networks
+test-clean: test
+    docker compose -f compose.test.yaml down --remove-orphans
 
 # Cleanup
 # =======

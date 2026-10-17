@@ -53,3 +53,6 @@ coverage.out
 .windsurf
 
 next-env.d.ts
+
+# Test coverage output
+frontend/project/coverage/

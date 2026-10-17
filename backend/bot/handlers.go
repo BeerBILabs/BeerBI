@@ -58,8 +58,8 @@ func (h *APIHandlers) GivenHandler(w http.ResponseWriter, r *http.Request) {
 
 	h.logger.Info().Str("handler", "given").Str("user", user).Int("count", c).Msg("request completed")
 	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write([]byte(fmt.Sprintf(`{"user":"%s","start":"%s","end":"%s","given":%d}`,
-		user, start.Format("2006-01-02"), end.Format("2006-01-02"), c)))
+	_, _ = fmt.Fprintf(w, `{"user":"%s","start":"%s","end":"%s","given":%d}`,
+		user, start.Format("2006-01-02"), end.Format("2006-01-02"), c)
 }
 
 // ReceivedHandler returns the number of beers received by a user in a date range
@@ -87,8 +87,8 @@ func (h *APIHandlers) ReceivedHandler(w http.ResponseWriter, r *http.Request) {
 
 	h.logger.Info().Str("handler", "received").Str("user", user).Int("count", c).Msg("request completed")
 	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write([]byte(fmt.Sprintf(`{"user":"%s","start":"%s","end":"%s","received":%d}`,
-		user, start.Format("2006-01-02"), end.Format("2006-01-02"), c)))
+	_, _ = fmt.Fprintf(w, `{"user":"%s","start":"%s","end":"%s","received":%d}`,
+		user, start.Format("2006-01-02"), end.Format("2006-01-02"), c)
 }
 
 // UserHandler returns user information from Slack (with database caching)
@@ -118,7 +118,7 @@ func (h *APIHandlers) UserHandler(w http.ResponseWriter, r *http.Request) {
 				"profile_image": profileImage,
 			}
 			w.Header().Set("Content-Type", "application/json")
-			json.NewEncoder(w).Encode(response)
+			_ = json.NewEncoder(w).Encode(response)
 			return
 		}
 	}

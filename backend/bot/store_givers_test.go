@@ -16,14 +16,14 @@ func TestGetAllGiversAndRecipients(t *testing.T) {
 		t.Fatalf("temp file: %v", err)
 	}
 	path := f.Name()
-	f.Close()
-	defer os.Remove(path)
+	_ = f.Close()
+	defer func() { _ = os.Remove(path) }()
 
 	db, err := sql.Open("sqlite3", path+"?_foreign_keys=1")
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	store, err := NewSQLiteStore(db)
 	if err != nil {
