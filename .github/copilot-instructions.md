@@ -90,6 +90,8 @@ Chart components live in `components/charts/`. Shared utilities in `lib/` (userC
 
 `ActivityHeatmap` is split so hovering never re-renders the grid: `heatmapModel.ts` builds the cells once (`Map` keyed by week and weekday, O(days)), `HeatmapGrid` is a `React.memo` component fed only the model and stable callbacks, and `HeatmapTooltip` owns the tooltip state and is driven through a ref.
 
+Bundle: the Recharts chart components are loaded with `next/dynamic` (`ssr: false`, `ChartSkeleton` as placeholder) in `app/analytics/page.tsx`; do not import `components/charts/index.ts` from other pages. `DateRangePicker` uses two native `<input type="date">` (no date library). Run `bun run analyze` in `frontend/project` for a bundle report (`@next/bundle-analyzer`, `ANALYZE=true`, webpack build, output in `.next/analyze/`).
+
 ### Theme System
 
 `app/globals.css` defines HSL CSS custom properties for light/dark modes. Beer-themed golden accent (`#d4a84b`). Theme is stored in a cookie (read server-side in layout.tsx to prevent FOUC). All color references should use the CSS variables (e.g., `hsl(var(--primary))`), not hardcoded values.

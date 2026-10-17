@@ -1,16 +1,53 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import DateRangePicker from "@/components/DateRangePicker";
 import { formatLocalDate } from "@/lib/dateUtils";
 import { useAnalyticsData } from "@/lib/useAnalyticsData";
-import {
-  ActivityChart,
-  LeaderboardChart,
-  QuarterlyChart,
-  ActivityHeatmap,
-  NetworkChart,
-} from "@/components/charts";
+import { ChartSkeleton } from "@/components/charts/ChartContainer";
+
+// Recharts is heavy (~400 KB); load the charts on demand so no other page pays for it.
+// Each chart is client-only, so there is nothing to server-render. The placeholders repeat the
+// title, subtitle and height of the real chart so the layout does not jump when it appears.
+const loadActivityChart = () => import("@/components/charts/ActivityChart").then((m) => m.ActivityChart);
+const loadLeaderboardChart = () => import("@/components/charts/LeaderboardChart").then((m) => m.LeaderboardChart);
+const loadQuarterlyChart = () => import("@/components/charts/QuarterlyChart").then((m) => m.QuarterlyChart);
+const loadActivityHeatmap = () => import("@/components/charts/ActivityHeatmap").then((m) => m.ActivityHeatmap);
+const loadNetworkChart = () => import("@/components/charts/NetworkChart").then((m) => m.NetworkChart);
+
+const ActivityChart = dynamic(loadActivityChart, {
+  ssr: false,
+  loading: () => (
+    <ChartSkeleton title="Activity Over Time" subtitle="Beer giving and receiving trends" skeletonHeight="h-72" />
+  ),
+});
+// Two entries for the same module so each placeholder carries the right heading.
+const TopGiversChart = dynamic(loadLeaderboardChart, {
+  ssr: false,
+  loading: () => <ChartSkeleton title="Top Givers" subtitle="Top 10 by beer count" skeletonHeight="h-64" />,
+});
+const TopRecipientsChart = dynamic(loadLeaderboardChart, {
+  ssr: false,
+  loading: () => <ChartSkeleton title="Top Recipients" subtitle="Top 10 by beer count" skeletonHeight="h-64" />,
+});
+const QuarterlyChart = dynamic(loadQuarterlyChart, {
+  ssr: false,
+  loading: () => {
+    const year = new Date().getFullYear();
+    return <ChartSkeleton title="Quarterly Comparison" subtitle={`${year - 1} - ${year}`} skeletonHeight="h-64" />;
+  },
+});
+const ActivityHeatmap = dynamic(loadActivityHeatmap, {
+  ssr: false,
+  loading: () => <ChartSkeleton title="Activity Heatmap" subtitle="Daily beer activity" skeletonHeight="h-36" />,
+});
+const NetworkChart = dynamic(loadNetworkChart, {
+  ssr: false,
+  loading: () => (
+    <ChartSkeleton title="🤝 Who Appreciates Whom" subtitle="Top giver → recipient pairs" skeletonHeight="h-80" />
+  ),
+});
 
 export default function AnalyticsPage() {
   const now = new Date();
@@ -20,6 +57,18 @@ export default function AnalyticsPage() {
     start: formatLocalDate(yearStart),
     end: formatLocalDate(now),
   });
+
+  // Start loading the chart code right away, in parallel with the data request, so the chunks
+  // are already there when the data arrives (otherwise: data first, then JS).
+  useEffect(() => {
+    void Promise.all([
+      loadActivityChart(),
+      loadLeaderboardChart(),
+      loadQuarterlyChart(),
+      loadActivityHeatmap(),
+      loadNetworkChart(),
+    ]);
+  }, []);
 
   // Fetch all analytics data with a single request
   const { data: analyticsData, loading, error } = useAnalyticsData({
@@ -160,14 +209,14 @@ export default function AnalyticsPage() {
 
               {/* Top Givers & Recipients - Side by Side */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <LeaderboardChart
+                <TopGiversChart
                   startDate={range.start}
                   endDate={range.end}
                   type="givers"
                   limit={10}
                   preloadedData={analyticsData.top_givers}
                 />
-                <LeaderboardChart
+                <TopRecipientsChart
                   startDate={range.start}
                   endDate={range.end}
                   type="recipients"
