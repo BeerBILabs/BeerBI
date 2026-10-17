@@ -28,8 +28,8 @@ jobs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: dorny/paths-filter@v3
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v4
         id: filter
         # Only pull requests are filtered; pushes to main and release tags always run everything.
         if: github.event_name == 'pull_request'
@@ -53,9 +53,9 @@ jobs:
       run:
         working-directory: backend/bot
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           go-version-file: backend/bot/go.mod
           cache-dependency-path: backend/bot/go.sum
@@ -73,7 +73,7 @@ jobs:
         run: go vet ./...
 
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v8
+        uses: golangci/golangci-lint-action@v9
         with:
           version: v2.5.0
           working-directory: backend/bot
@@ -97,7 +97,7 @@ jobs:
       run:
         working-directory: frontend/project
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Read Bun version from docker/frontend/Dockerfile
         id: bun
