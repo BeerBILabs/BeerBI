@@ -4,7 +4,7 @@ Go-based Slack bot service with REST API for tracking beer emoji interactions.
 
 ## Tech Stack
 
-- **Language**: Go 1.21+
+- **Language**: Go 1.27+
 - **Database**: SQLite
 - **Integration**: Slack Socket Mode
 - **Deployment**: Docker

@@ -141,23 +141,19 @@ func (scm *SlackConnectionManager) StartWithReconnection(ctx context.Context, ev
 				// Start event processing
 				go scm.processEvents(eventCtx, eventHandler)
 
-				// Run the socket mode client
+				// Run the socket mode client. RunContext reconnects internally and only
+				// returns with a non-nil error (connect failure or context cancellation).
 				scm.logger.Info().Msg("Starting Slack socket mode client")
-				if err := socketClient.RunContext(ctx); err != nil {
-					scm.setConnected(false)
-					if ctx.Err() != nil {
-						scm.logger.Info().Err(err).Msg("Socket mode client stopped due to context cancellation")
-						return
-					} else {
-						scm.logger.Error().Err(err).Msg("Socket mode client error, will reconnect")
-						scm.mu.Lock()
-						scm.reconnectCount++
-						scm.mu.Unlock()
-					}
-				} else {
-					scm.setConnected(false)
-					scm.logger.Info().Msg("Socket mode client stopped gracefully")
+				err := socketClient.RunContext(ctx)
+				scm.setConnected(false)
+				if ctx.Err() != nil {
+					scm.logger.Info().Err(err).Msg("Socket mode client stopped due to context cancellation")
+					return
 				}
+				scm.logger.Error().Err(err).Msg("Socket mode client error, will reconnect")
+				scm.mu.Lock()
+				scm.reconnectCount++
+				scm.mu.Unlock()
 			}
 		}
 	}()

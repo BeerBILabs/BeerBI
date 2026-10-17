@@ -8,7 +8,7 @@ Monorepo for BeerBot — a Slack bot that tracks team appreciation through virtu
 
 | Component | Path | Tech Stack |
 |-----------|------|------------|
-| Backend | `backend/bot/` | Go 1.25, SQLite, Slack Socket Mode, zerolog |
+| Backend | `backend/bot/` | Go 1.27, SQLite, Slack Socket Mode, zerolog |
 | Frontend | `frontend/project/` | Next.js 16 (App Router), React 19, Tailwind 4, Recharts, Bun |
 
 ## Commands
