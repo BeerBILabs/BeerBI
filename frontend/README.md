@@ -41,5 +41,5 @@ cd project
 bun install --frozen-lockfile
 bun run test            # Vitest (TZ is forced to Europe/Berlin)
 bun run test:coverage   # with coverage and threshold
-bun run typecheck && bun run lint
+bun run typecheck && bun run lint   # ESLint 10, warnings fail the run
 ```

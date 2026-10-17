@@ -53,6 +53,8 @@ export function useAnalyticsData({
 
   useEffect(() => {
     if (!enabled) {
+      // TODO(WS-D): derive `loading` from `enabled` when this hook is reworked (F6: separate data and isFetching)
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLoading(false);
       return;
     }

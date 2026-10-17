@@ -14,10 +14,16 @@ interface ActivityHeatmapProps {
   preloadedData?: Array<{ date: string; count: number }> | null;
 }
 
+const EMPTY: HeatmapPoint[] = [];
+
 export function ActivityHeatmap({ startDate, endDate, preloadedData }: ActivityHeatmapProps) {
-  const [data, setData] = useState<HeatmapPoint[]>([]);
-  const [loading, setLoading] = useState(preloadedData === undefined);
+  // Data handed in by the parent is used as is (null = empty range); otherwise it is fetched.
+  const hasPreloaded = preloadedData !== undefined;
+  const [fetchedData, setFetchedData] = useState<HeatmapPoint[]>([]);
+  const [fetching, setFetching] = useState(!hasPreloaded);
   const [error, setError] = useState<string | null>(null);
+  const data = hasPreloaded ? (preloadedData ?? EMPTY) : fetchedData;
+  const loading = !hasPreloaded && fetching;
 
   // The tooltip lives in its own component and is driven through this ref, so hovering a
   // cell never re-renders this component or the grid.
@@ -30,17 +36,13 @@ export function ActivityHeatmap({ startDate, endDate, preloadedData }: ActivityH
   }, []);
 
   useEffect(() => {
-    if (preloadedData !== undefined) {
-      setData(preloadedData ?? []);
-      setLoading(false);
-      return;
-    }
+    if (preloadedData !== undefined) return;
 
     // Ignore the response of a superseded request (range changed or unmounted meanwhile).
     const controller = new AbortController();
 
     async function fetchData() {
-      setLoading(true);
+      setFetching(true);
       setError(null);
       try {
         const params = new URLSearchParams({ start: startDate, end: endDate });
@@ -48,12 +50,12 @@ export function ActivityHeatmap({ startDate, endDate, preloadedData }: ActivityH
         if (!resp.ok) throw new Error("Failed to fetch heatmap data");
         const json = await resp.json();
         if (controller.signal.aborted) return;
-        setData(json || []);
+        setFetchedData(json || []);
       } catch (err) {
         if (controller.signal.aborted) return;
         setError(err instanceof Error ? err.message : "An error occurred");
       } finally {
-        if (!controller.signal.aborted) setLoading(false);
+        if (!controller.signal.aborted) setFetching(false);
       }
     }
     fetchData();
