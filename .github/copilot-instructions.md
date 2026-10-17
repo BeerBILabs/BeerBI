@@ -23,6 +23,8 @@ just test             # Run all tests via Docker (compose.test.yaml)
 just dev-logs         # Tail all logs
 just dev-logs-backend # Backend logs only
 just dev-logs-frontend # Frontend logs only
+just seed             # Fill backend/bot/data/bot.db with synthetic data (ROWS=200000)
+just bench            # Backend query benchmarks (BEERBI_BENCH_ROWS=1000000)
 just shell-backend    # Shell into backend container
 just shell-frontend   # Shell into frontend container
 just status           # Show running services
@@ -111,7 +113,10 @@ if !ok { return } // Already processed
 - **Frontend:** localStorage with 7-day TTL (`lib/userCache.ts`) — reduces API calls, enables offline viewing of previously loaded data
 
 ### Database Migrations
-`store.go` → `migrate()` runs on startup. Schema changes must be additive/non-destructive and added to the migration function.
+`store.go` → `migrate()` runs on startup. Schema changes must be additive/non-destructive and added to the migration function. Every step is idempotent: create/upgrade tables (a legacy `beers` table without `UNIQUE` is rebuilt in one transaction), drop obsolete indexes, run versioned data steps gated by `PRAGMA user_version` (v1: normalise `beers.ts_rfc` to RFC3339 UTC, logs `rows_changed`), create the indexes listed in `storeIndexes`, then `ANALYZE` if indexes were created or statistics are missing.
+
+### Date Filters
+All date filters on `beers` are half-open ranges `ts_rfc >= ? AND ts_rfc < ?` built by `dateBounds(start, end)` (inclusive calendar days; the upper bound is the bare date of the day after `end`) or `yearBounds`. Never wrap `ts_rfc` in a function in a `WHERE` clause: it disables the indexes. `store_plan_test.go` fails if a date-bounded query does not `SEARCH` an index. New date-bounded queries go into the query constants in `store.go` and into `planQueries()` in that test.
 
 ### Frontend Data Fetching
 Components fetch via `/api/proxy/{endpoint}`. The `Leaderboard.tsx` component uses a 5-concurrent-worker pattern for parallel user stat requests.
@@ -143,6 +148,8 @@ Components fetch via `/api/proxy/{endpoint}`. The `Leaderboard.tsx` component us
 - `tsconfig.json` has `"strict": true`; keep it that way (no `any` to silence errors, no `@ts-ignore`).
 - ESLint 10 (flat config `frontend/project/eslint.config.mjs`) runs with `--max-warnings 0`: typescript-eslint recommended, `@next/eslint-plugin-next` core-web-vitals and `eslint-plugin-react-hooks` recommended (rules-of-hooks, exhaustive-deps and the React Compiler rules such as `set-state-in-effect`). Fix findings instead of disabling them; a disable needs a reason (`// TODO(owner): ...`). `eslint-config-next` is deliberately not used.
 - TypeScript runs in two versions, as recommended for TS 7: `bun run typecheck` uses TypeScript 7 (`@typescript/native`, the native `tsc`), while the `typescript` package is aliased to `@typescript/typescript6` because Next's build-time type check and typescript-eslint need the TS 6 JavaScript API. Re-resolving the lockfile needs Bun >= 1.4 (older Bun mis-resolves the nested `npm:` alias). Drop the alias once TS 7.1 ships its API and the tools support it.
+- Benchmarks: `bench_test.go` runs the analytics queries against a seeded database (`internal/seed`, 500 fake users, 6 years). `go test -run '^$' -bench . -benchmem ./...`; `BEERBI_BENCH_ROWS` sets the size (default 1,000,000, 20,000 with `-short`). Record before/after numbers in the PR when touching queries, indexes or the driver.
+- Seed a dev database: `just seed` (or `go run ./cmd/seed -db data/bot.db -rows 200000` in `backend/bot`). It only creates the `beers` table; the bot adds indexes on its next start. All user IDs are fake (`U000000` …).
 - Coverage minimums are the env vars `BACKEND_COVERAGE_THRESHOLD` and `FRONTEND_COVERAGE_THRESHOLD` at the top of `ci.yml` (the frontend value is also the default in `vitest.config.ts`). Raise them when tests are added.
 - Do not use `docker compose -f compose.test.yaml up --abort-on-container-exit`: the first service to finish stops the other. Use `just test`.
 - Without `just`: `docker compose -f compose.test.yaml run --build --rm backend-test` and `... frontend-test`. Host Go cannot link CGO (sqlite3) on the maintainer's Mac, so run Go inside Docker.

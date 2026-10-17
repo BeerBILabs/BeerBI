@@ -17,7 +17,7 @@ permissions:
 env:
   # Minimum statement coverage (%) for the backend package and line coverage (%) for the frontend.
   # Set to the current level; raise them as tests are added.
-  BACKEND_COVERAGE_THRESHOLD: 12
+  BACKEND_COVERAGE_THRESHOLD: 30
   FRONTEND_COVERAGE_THRESHOLD: 33
 
 jobs:
