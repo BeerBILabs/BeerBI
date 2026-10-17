@@ -1,38 +1,41 @@
 "use client"
 
-import { useEffect, useState } from 'react'
-import { setThemeCookie } from '@/app/actions/theme'
+import { useEffect } from 'react'
+
+type Theme = 'light' | 'dark'
+
+const THEME_COOKIE = 'theme'
+const ONE_YEAR_SECONDS = 60 * 60 * 24 * 365
+
+function readThemeCookie(): string | undefined {
+  return document.cookie
+    .split('; ')
+    .find(row => row.startsWith(`${THEME_COOKIE}=`))
+    ?.split('=')[1]
+}
+
+// Client-side only: no server action, so there is no extra POST on the first visit.
+// Name and format are what app/layout.tsx and its blocking ThemeScript read.
+function writeThemeCookie(theme: Theme) {
+  document.cookie = `${THEME_COOKIE}=${theme}; path=/; max-age=${ONE_YEAR_SECONDS}; SameSite=Lax`
+}
 
 export function ThemeProvider() {
-  const [mounted, setMounted] = useState(false)
-
   useEffect(() => {
-    // Read cookie on mount (cookie already applied server-side, but sync state)
-    const theme = document.cookie
-      .split('; ')
-      .find(row => row.startsWith('theme='))
-      ?.split('=')[1] as 'light' | 'dark' | undefined
-
-    // If no cookie exists, default to light and set cookie
-    if (!theme) {
+    // Without a theme cookie the page is light: make sure of it and remember the choice.
+    if (!readThemeCookie()) {
       document.documentElement.classList.remove('dark')
-      setThemeCookie('light')
+      writeThemeCookie('light')
     }
-
-    setMounted(true)
   }, [])
 
-  return mounted ? null : null
+  return null
 }
 
 export function useTheme() {
-  function setTheme(theme: 'light' | 'dark') {
-    const root = document.documentElement
-    root.classList.toggle('dark', theme === 'dark')
-    // Fire and forget - don't await to avoid blocking UI
-    setThemeCookie(theme)
-    // Also set client-side cookie for immediate reads (server action may have latency)
-    document.cookie = `theme=${theme}; path=/; max-age=31536000; SameSite=Lax`
+  function setTheme(theme: Theme) {
+    document.documentElement.classList.toggle('dark', theme === 'dark')
+    writeThemeCookie(theme)
   }
 
   function toggleTheme() {
@@ -40,7 +43,7 @@ export function useTheme() {
     setTheme(isDark ? 'light' : 'dark')
   }
 
-  function getTheme(): 'light' | 'dark' {
+  function getTheme(): Theme {
     if (typeof document === 'undefined') return 'light'
     return document.documentElement.classList.contains('dark') ? 'dark' : 'light'
   }

@@ -4,8 +4,8 @@ Next.js dashboard for BeerBot analytics and team appreciation insights.
 
 ## Tech Stack
 
-- **Framework**: Next.js 15+ with App Router
-- **Language**: TypeScript 5.9+
+- **Framework**: Next.js 16 with App Router (`output: 'standalone'`)
+- **Language**: TypeScript (strict mode; type-checked with TypeScript 7)
 - **Styling**: Tailwind CSS 4.x
 - **Runtime**: Bun (recommended) or Node.js 18+
 - **Deployment**: Docker
@@ -29,6 +29,10 @@ bun run analyze   # ANALYZE=true next build --webpack, reports in .next/analyze/
 ```
 
 The chart components (Recharts, about 400 KB) are loaded on demand on `/analytics`; the date range picker uses native date inputs.
+
+## Theme
+
+Light/dark mode is stored in the `theme` cookie (`light` or `dark`). It is set in the browser only (`components/ThemeProvider.tsx`), so the first visit causes no extra request; `app/layout.tsx` and its inline script read it to avoid a flash of the wrong theme. Colours always come from the HSL variables in `app/globals.css`.
 
 ## Tests
 
