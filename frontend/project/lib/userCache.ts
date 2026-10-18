@@ -46,6 +46,20 @@ function trim(map: Map<string, CachedUserInfo>): void {
   }
 }
 
+/** Valid entries of the stored blob, oldest first; empty if it is missing or corrupt. */
+function readStored(storage: Storage): Array<[string, CachedUserInfo]> {
+  try {
+    const raw = storage.getItem(USER_CACHE_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    if (!parsed || typeof parsed !== "object") return [];
+    return Object.entries(parsed as Record<string, unknown>)
+      .filter((e): e is [string, CachedUserInfo] => isCachedUserInfo(e[1]))
+      .sort((a, b) => a[1].cached_at - b[1].cached_at);
+  } catch {
+    return []; // corrupt blob: start empty, the next flush overwrites it
+  }
+}
+
 function load(): Map<string, CachedUserInfo> {
   // On the server there is no storage and nothing must be shared between requests.
   if (typeof window === "undefined") return new Map();
@@ -54,19 +68,8 @@ function load(): Map<string, CachedUserInfo> {
   memory = new Map();
   const storage = getStorage();
   if (storage) {
-    try {
-      const raw = storage.getItem(USER_CACHE_KEY);
-      const parsed: unknown = raw ? JSON.parse(raw) : null;
-      if (parsed && typeof parsed === "object") {
-        const entries = Object.entries(parsed as Record<string, unknown>)
-          .filter((e): e is [string, CachedUserInfo] => isCachedUserInfo(e[1]))
-          .sort((a, b) => a[1].cached_at - b[1].cached_at);
-        for (const [id, info] of entries) memory.set(id, info);
-        trim(memory);
-      }
-    } catch {
-      // corrupt blob: start empty, the next flush overwrites it
-    }
+    for (const [id, info] of readStored(storage)) memory.set(id, info);
+    trim(memory);
   }
 
   if (!pagehideHooked) {
@@ -76,11 +79,23 @@ function load(): Map<string, CachedUserInfo> {
   return memory;
 }
 
-/** Write the in-memory cache to localStorage now. */
+/**
+ * Write the in-memory cache to localStorage now.
+ *
+ * Other tabs write the same key, so the stored blob is merged in first (per user the newer
+ * `cached_at` wins) instead of overwritten; this tab then also sees what the others cached.
+ */
 export function flushUserCache(): void {
   flushScheduled = false;
   const storage = getStorage();
   if (!storage || !memory) return;
+  const merged = new Map<string, CachedUserInfo>(memory);
+  for (const [id, info] of readStored(storage)) {
+    const mine = merged.get(id);
+    if (!mine || mine.cached_at < info.cached_at) merged.set(id, info);
+  }
+  memory = new Map(Array.from(merged).sort((a, b) => a[1].cached_at - b[1].cached_at));
+  trim(memory);
   try {
     storage.setItem(USER_CACHE_KEY, JSON.stringify(Object.fromEntries(memory)));
   } catch {

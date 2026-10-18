@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   BarChart,
   Bar,
@@ -13,7 +13,7 @@ import {
 } from "recharts";
 import { ChartContainer } from "./ChartContainer";
 import { defaultChartColors, formatNumber } from "@/lib/chartTheme";
-import { resolveUsers, topUserRefs } from "@/lib/userNames";
+import { knownUserNames, resolveUsers, topUserRefs } from "@/lib/userNames";
 import type { TopUserStats, TopUsersResult } from "@/lib/statsTypes";
 
 interface LeaderboardChartProps {
@@ -85,10 +85,12 @@ export function LeaderboardChart({
   const barColor = type === "givers" ? colors.given : colors.received;
   const title = type === "givers" ? "Top Givers" : "Top Recipients";
 
-  // Prepare chart data with names
+  // Names known without a request (inline or cached) label new rows at once; `names` may still
+  // belong to the previous rows while resolveUsers runs.
+  const quickNames = useMemo(() => knownUserNames(topUserRefs(data)), [data]);
   const chartData = data.map((d) => ({
     ...d,
-    name: names[d.userId] || d.userId,
+    name: quickNames[d.userId] || names[d.userId] || d.userId,
   }));
 
   return (

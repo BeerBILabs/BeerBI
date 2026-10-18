@@ -75,8 +75,8 @@ describe('Leaderboard data', () => {
   it('renders inline names from the stats response without a /users request', async () => {
     fetchMock.mockResolvedValue(jsonResponse({
       current: {
-        givers: [{ userId: 'U1', count: 5, name: 'Alice Example', avatar: null }],
-        recipients: [{ userId: 'U2', count: 4, name: 'Bob Example', avatar: null }],
+        givers: [{ userId: 'U1', count: 5, real_name: 'Alice Example' }],
+        recipients: [{ userId: 'U2', count: 4, real_name: 'Bob Example' }],
       },
       previous: { givers: [{ userId: 'U1', count: 1 }], recipients: [] },
     }));
@@ -124,7 +124,7 @@ describe('Leaderboard data', () => {
   it('keeps the previous ranking visible while a new range loads', async () => {
     let release: (v: unknown) => void = () => {};
     fetchMock.mockResolvedValueOnce(jsonResponse({
-      current: { givers: [{ userId: 'U1', count: 5, name: 'Alice Example' }], recipients: [] },
+      current: { givers: [{ userId: 'U1', count: 5, real_name: 'Alice Example' }], recipients: [] },
       previous: null,
     }));
     fetchMock.mockImplementationOnce(() => new Promise((resolve) => { release = resolve; }));
@@ -137,7 +137,7 @@ describe('Leaderboard data', () => {
     expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
 
     await act(async () => release(jsonResponse({
-      current: { givers: [{ userId: 'U3', count: 1, name: 'Carol Example' }], recipients: [] },
+      current: { givers: [{ userId: 'U3', count: 1, real_name: 'Carol Example' }], recipients: [] },
       previous: null,
     })));
     expect(await screen.findByText('Carol Example')).toBeInTheDocument();

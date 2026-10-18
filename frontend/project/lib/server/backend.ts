@@ -1,5 +1,6 @@
-// Server-only helpers for talking to the Go backend. Never import this from a client component:
-// it reads API_TOKEN, which must not reach the browser bundle.
+// Server-only helpers for talking to the Go backend. It reads API_TOKEN, which must not reach the
+// browser bundle: `server-only` makes the build fail if a client component imports this module.
+import 'server-only'
 
 const DEFAULT_BACKEND_BASE = 'http://localhost:8080'
 

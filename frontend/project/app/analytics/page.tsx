@@ -6,6 +6,7 @@ import DateRangePicker from "@/components/DateRangePicker";
 import { formatLocalDate } from "@/lib/dateUtils";
 import { useAnalyticsData } from "@/lib/useAnalyticsData";
 import { ChartSkeleton } from "@/components/charts/ChartContainer";
+import { useHydrated } from "@/lib/useHydrated";
 
 // Recharts is heavy (~400 KB); load the charts on demand so no other page pays for it.
 // Each chart is client-only, so there is nothing to server-render. The placeholders repeat the
@@ -49,14 +50,20 @@ const NetworkChart = dynamic(loadNetworkChart, {
   ),
 });
 
-export default function AnalyticsPage() {
-  const now = new Date();
-  const yearStart = new Date(now.getFullYear(), 0, 1);
+type Range = { start: string; end: string };
 
-  const [range, setRange] = useState({
-    start: formatLocalDate(yearStart),
-    end: formatLocalDate(now),
-  });
+/** Default range: the current year up to today. */
+function thisYearSoFar(): Range {
+  const now = new Date();
+  return { start: formatLocalDate(new Date(now.getFullYear(), 0, 1)), end: formatLocalDate(now) };
+}
+
+export default function AnalyticsPage() {
+  // The default range comes from the client's clock after hydration; the page HTML is built once
+  // at build time and must not contain a date (see useHydrated).
+  const hydrated = useHydrated();
+  const [picked, setRange] = useState<Range | null>(null);
+  const range = picked ?? (hydrated ? thisYearSoFar() : null);
 
   // Start loading the chart code right away, in parallel with the data request, so the chunks
   // are already there when the data arrives (otherwise: data first, then JS).
@@ -73,11 +80,12 @@ export default function AnalyticsPage() {
   // Fetch all analytics data with a single request. While a new range loads, the previous data
   // stays on screen (charts stay mounted) and `isFetching` drives an inline indicator.
   const { data: analyticsData, dataRange, isFetching, loading, error } = useAnalyticsData({
-    startDate: range.start,
-    endDate: range.end,
+    startDate: range?.start ?? "",
+    endDate: range?.end ?? "",
     granularity: "day",
     limit: 10,
     pairsLimit: 15,
+    enabled: range !== null,
   });
 
   const quickRanges = [
@@ -168,8 +176,8 @@ export default function AnalyticsPage() {
             </div>
             <div className="flex-1 flex justify-end">
               <DateRangePicker
-                start={range.start}
-                end={range.end}
+                start={range?.start ?? null}
+                end={range?.end ?? null}
                 onChange={(s, e) => setRange({ start: s, end: e })}
               />
             </div>
@@ -188,7 +196,7 @@ export default function AnalyticsPage() {
             </p>
           )}
 
-          {loading && (
+          {(loading || !range) && (
             <div className="text-center py-12">
               <p style={{ color: "hsl(var(--muted-foreground))" }}>
                 Loading analytics...

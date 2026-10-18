@@ -89,3 +89,43 @@ describe('GET /api/leaderboard', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+describe('GET /api/leaderboard caching', () => {
+  function cached(body: unknown, cacheControl: string | null) {
+    return Response.json(body, cacheControl ? { headers: { 'Cache-Control': cacheControl } } : undefined);
+  }
+  const both = 'start=2026-10-01&end=2026-12-31&prev_start=2026-07-01&prev_end=2026-09-30';
+
+  it('uses the shorter backend max-age of both periods, always private', async () => {
+    fetchMock
+      .mockResolvedValueOnce(cached(top('C'), 'private, max-age=30'))
+      .mockResolvedValueOnce(cached(top('P'), 'private, max-age=3600'));
+    const resp = await get(both);
+    expect(resp.headers.get('cache-control')).toBe('private, max-age=30');
+  });
+
+  it('takes the max-age of the current period alone when no comparison is asked for', async () => {
+    fetchMock.mockResolvedValue(cached(top('C'), 'public, max-age=3600'));
+    const resp = await get('start=2025-01-01&end=2025-03-31');
+    expect(resp.headers.get('cache-control')).toBe('private, max-age=3600');
+  });
+
+  it.each([
+    ['no header on one part', 'private, max-age=3600', null],
+    ['no-store on one part', 'private, max-age=3600', 'no-store'],
+    ['no-cache with max-age', 'no-cache, max-age=60', 'private, max-age=60'],
+    ['max-age=0', 'max-age=0', 'max-age=60'],
+  ])('is not cached with %s', async (_label, a, b) => {
+    fetchMock.mockResolvedValueOnce(cached(top('C'), a)).mockResolvedValueOnce(cached(top('P'), b));
+    const resp = await get(both);
+    expect(resp.headers.get('cache-control')).toBe('private, no-store');
+  });
+
+  it('is not cached when the comparison period failed, so the arrows come back on reload', async () => {
+    fetchMock
+      .mockResolvedValueOnce(cached(top('C'), 'private, max-age=3600'))
+      .mockResolvedValueOnce(new Response('boom', { status: 500 }));
+    const resp = await get(both);
+    expect(resp.headers.get('cache-control')).toBe('private, no-store');
+  });
+});

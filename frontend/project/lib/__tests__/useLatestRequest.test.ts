@@ -69,3 +69,21 @@ describe('useLatestRequest', () => {
     expect(calls[0].signal.aborted).toBe(true);
   });
 });
+
+describe('useLatestRequest when a key comes back', () => {
+  it('reports the refetch of an earlier key as fetching and hides its old error (a -> b -> a)', async () => {
+    const { load, calls } = controllableLoader();
+    const { result, rerender } = renderHook(({ k }) => useLatestRequest(k, load), { initialProps: { k: 'a' } });
+    await act(async () => calls[0].reject(new Error('old failure')));
+    expect(result.current.error).toBe('old failure');
+
+    rerender({ k: 'b' });
+    rerender({ k: 'a' });
+    expect(calls).toHaveLength(3);
+    expect(calls[1].signal.aborted).toBe(true);
+    expect(result.current).toMatchObject({ isFetching: true, error: null });
+
+    await act(async () => calls[2].resolve('A'));
+    expect(result.current).toEqual({ data: 'A', dataKey: 'a', isFetching: false, error: null });
+  });
+});

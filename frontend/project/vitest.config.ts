@@ -7,7 +7,11 @@ const COVERAGE_THRESHOLD = Number(process.env.FRONTEND_COVERAGE_THRESHOLD ?? 70)
 
 export default defineConfig({
   resolve: {
-    alias: { '@': fileURLToPath(new URL('./', import.meta.url)) },
+    alias: {
+      '@': fileURLToPath(new URL('./', import.meta.url)),
+      // The real package throws outside a React Server Components build; tests import server modules directly.
+      'server-only': fileURLToPath(new URL('./test/server-only.ts', import.meta.url)),
+    },
   },
   test: {
     environment: 'jsdom',

@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChartContainer } from "./ChartContainer";
 import { defaultChartColors } from "@/lib/chartTheme";
-import { pairUserRefs, resolveUsers } from "@/lib/userNames";
+import { knownUserNames, pairUserRefs, resolveUsers } from "@/lib/userNames";
 import type { PairStats } from "@/lib/statsTypes";
 
 interface NetworkChartProps {
@@ -64,6 +64,9 @@ export function NetworkChart({ startDate, endDate, limit = 20, preloadedData }: 
   }, [startDate, endDate, limit, preloadedData]);
 
   const colors = defaultChartColors;
+  // Names known without a request (inline or cached) label new rows at once; `names` may still
+  // belong to the previous rows while resolveUsers runs.
+  const quickNames = useMemo(() => knownUserNames(pairUserRefs(data)), [data]);
 
   // Calculate max count for scaling
   const maxCount = Math.max(...data.map((d) => d.count), 1);
@@ -94,8 +97,8 @@ export function NetworkChart({ startDate, endDate, limit = 20, preloadedData }: 
     >
       <div className="space-y-2 max-h-80 overflow-y-auto pr-2">
         {data.map((pair, index) => {
-          const giverName = names[pair.giver] || pair.giver;
-          const recipientName = names[pair.recipient] || pair.recipient;
+          const giverName = quickNames[pair.giver] || names[pair.giver] || pair.giver;
+          const recipientName = quickNames[pair.recipient] || names[pair.recipient] || pair.recipient;
           const widthPercent = (pair.count / maxCount) * 100;
 
           return (

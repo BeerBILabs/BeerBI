@@ -95,6 +95,33 @@ describe('local cache', () => {
     expect(getCachedUser('U1')?.real_name).toBe('One');
   });
 
+  it('merges what another tab stored instead of overwriting it', () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-05-01T12:00:00Z'));
+    setCachedUser('U1', 'Mine', null);
+    setCachedUser('U2', 'Old here', null);
+
+    // another tab writes U3 and a newer U2 to the same key
+    const later = Date.now() + 1000;
+    localStorage.setItem(KEY, JSON.stringify({
+      U2: { real_name: 'Newer there', profile_image: null, cached_at: later },
+      U3: { real_name: 'Theirs', profile_image: null, cached_at: later },
+    }));
+    flushUserCache();
+
+    const stored = JSON.parse(localStorage.getItem(KEY) ?? '{}');
+    expect(Object.keys(stored).sort()).toEqual(['U1', 'U2', 'U3']);
+    expect(stored.U2.real_name).toBe('Newer there');
+    // this tab sees the other tab's entries without reloading
+    expect(getCachedUser('U3')?.real_name).toBe('Theirs');
+
+    // and an older entry from storage does not replace a newer one here
+    setCachedUser('U1', 'Mine again', null);
+    localStorage.setItem(KEY, JSON.stringify({ U1: { real_name: 'Stale', profile_image: null, cached_at: 1 } }));
+    flushUserCache();
+    expect(JSON.parse(localStorage.getItem(KEY) ?? '{}').U1.real_name).toBe('Mine again');
+  });
+
   it('batches many writes into one localStorage write', async () => {
     const setItem = vi.spyOn(Storage.prototype, 'setItem');
     for (let i = 0; i < 20; i++) setCachedUser(`U${i}`, `N${i}`, null);

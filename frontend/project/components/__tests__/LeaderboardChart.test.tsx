@@ -32,7 +32,7 @@ describe('LeaderboardChart', () => {
         startDate="2026-01-01"
         endDate="2026-10-18"
         type="givers"
-        preloadedData={[{ userId: 'U1', count: 3, name: 'Alice Example' }]}
+        preloadedData={[{ userId: 'U1', count: 3, real_name: 'Alice Example' }]}
       />
     );
     await act(async () => {});
@@ -52,7 +52,7 @@ describe('LeaderboardChart', () => {
   it('fetches /stats/top without preloaded data', async () => {
     fetchMock.mockResolvedValue({
       ok: true,
-      json: async () => ({ givers: [], recipients: [{ userId: 'U1', count: 1, name: 'Alice Example' }] }),
+      json: async () => ({ givers: [], recipients: [{ userId: 'U1', count: 1, real_name: 'Alice Example' }] }),
     });
     render(<LeaderboardChart startDate="2026-01-01" endDate="2026-10-18" type="recipients" limit={5} />);
 

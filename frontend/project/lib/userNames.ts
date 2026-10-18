@@ -4,29 +4,51 @@ import type { PairStats, TopUserStats } from "./statsTypes";
 /** Display data for one Slack user ID. */
 export type ResolvedUser = { name: string; avatar: string | null };
 
-/** A user ID as it appears in a stats response, with the inline name/avatar if the backend sent one. */
+/**
+ * A user ID as it appears in a stats response, with the inline display data if the backend sent
+ * it. `avatar` only counts next to a `name`; a missing avatar then means "no avatar".
+ */
 export type UserRef = { id: string; name?: string | null; avatar?: string | null };
 
 type BatchLookup = Pick<typeof userDataManager, "getUsers">;
 
 export function topUserRefs(rows: readonly TopUserStats[]): UserRef[] {
-  return rows.map((r) => ({ id: r.userId, name: r.name, avatar: r.avatar }));
+  return rows.map((r) => ({
+    id: r.userId,
+    name: r.real_name ?? r.name,
+    avatar: r.profile_image ?? r.avatar,
+  }));
 }
 
 export function pairUserRefs(rows: readonly PairStats[]): UserRef[] {
   return rows.flatMap((r) => [
-    { id: r.giver, name: r.giverName },
-    { id: r.recipient, name: r.recipientName },
+    { id: r.giver, name: r.giver_name ?? r.giverName, avatar: r.giver_image ?? r.giverAvatar },
+    { id: r.recipient, name: r.recipient_name ?? r.recipientName, avatar: r.recipient_image ?? r.recipientAvatar },
   ]);
+}
+
+/**
+ * Names that are known right now, without a request: the inline name of a ref, else a cached
+ * name. Lets a chart label new rows at once while resolveUsers runs.
+ */
+export function knownUserNames(refs: readonly UserRef[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const ref of refs) {
+    if (!ref.id || out[ref.id]) continue;
+    const name = ref.name || getCachedUser(ref.id)?.real_name;
+    if (name) out[ref.id] = name;
+  }
+  return out;
 }
 
 /**
  * Names and avatars for the given user IDs.
  *
- * Names the backend returned inline are used as they are (and stored in the local cache), so a
- * response that carries all names needs no further request. Only IDs without an inline name are
- * looked up through the user cache / batch endpoint (userDataManager). Unknown IDs fall back to
- * the ID itself.
+ * Display data the backend returned inline is used as it is (and stored in the local cache), so a
+ * response that carries all names needs no further request. An inline name without an avatar
+ * means the user has no avatar (the backend omits empty fields). Only IDs without an inline name
+ * are looked up through the user cache / batch endpoint (userDataManager). Unknown IDs fall back
+ * to the ID itself.
  */
 export async function resolveUsers(
   refs: readonly UserRef[],
@@ -37,9 +59,7 @@ export async function resolveUsers(
 
   for (const ref of refs) {
     if (!ref.id || out[ref.id] || !ref.name) continue;
-    // An inline name without an avatar field keeps a cached avatar instead of dropping it.
-    const avatar =
-      ref.avatar !== undefined ? ref.avatar : (getCachedUser(ref.id)?.profile_image ?? null);
+    const avatar = ref.avatar || null;
     out[ref.id] = { name: ref.name, avatar };
     toStore[ref.id] = { real_name: ref.name, profile_image: avatar };
   }

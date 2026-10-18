@@ -5,6 +5,7 @@ import type { ReactElement } from 'react'
 import { Leaderboard } from './Leaderboard'
 import DateRangePicker from './DateRangePicker'
 import { formatLocalDate } from '@/lib/dateUtils'
+import { useHydrated } from '@/lib/useHydrated'
 
 type DateRange = { start: string; end: string }
 
@@ -58,14 +59,18 @@ const quickRanges: Array<{ label: string; get: () => DateRange }> = [
   },
 ];
 
-export default function UsersPage(): ReactElement {
-  // Default to current year
+/** Default range: the current year up to today. */
+function thisYearSoFar(): DateRange {
   const now = new Date()
-  const yearStart = new Date(now.getFullYear(), 0, 1)
-  const [range, setRange] = useState<DateRange>({
-    start: formatLocalDate(yearStart),
-    end: formatLocalDate(now)
-  })
+  return { start: formatLocalDate(new Date(now.getFullYear(), 0, 1)), end: formatLocalDate(now) }
+}
+
+export default function UsersPage(): ReactElement {
+  // The default range comes from the client's clock after hydration; the page HTML is built once
+  // at build time and must not contain a date (see useHydrated).
+  const hydrated = useHydrated()
+  const [picked, setRange] = useState<DateRange | null>(null)
+  const range = picked ?? (hydrated ? thisYearSoFar() : null)
 
   return (
     <section>
@@ -101,19 +106,23 @@ export default function UsersPage(): ReactElement {
         </div>
         <div className="flex justify-center">
           <DateRangePicker
-            start={range.start}
-            end={range.end}
+            start={range?.start ?? null}
+            end={range?.end ?? null}
             onChange={(s, e) => setRange({ start: s, end: e })}
           />
         </div>
       </div>
 
       <div className="animate-fadein">
-        <Leaderboard
-          dateRange={range}
-          showRankChange={false}
-          maxHeight=""
-        />
+        {range ? (
+          <Leaderboard
+            dateRange={range}
+            showRankChange={false}
+            maxHeight=""
+          />
+        ) : (
+          <div className="min-h-[400px]" aria-busy="true" />
+        )}
       </div>
     </section>
   )

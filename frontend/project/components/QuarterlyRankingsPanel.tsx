@@ -5,6 +5,7 @@ import type { ReactElement } from "react";
 import { Leaderboard } from "./Leaderboard";
 import { YearSelector } from "./YearSelector";
 import { getCurrentQuarter, getPreviousQuarter } from "@/lib/quarters";
+import { useHydrated } from "@/lib/useHydrated";
 
 type ActiveTab = "all" | "q1" | "q2" | "q3" | "q4";
 
@@ -70,6 +71,35 @@ function QuarterShortcutsInline({
 }
 
 export function QuarterlyRankingsPanel(): ReactElement {
+  // The tabs, the year list and the default quarter come from the client's clock, so they render
+  // only after hydration (the page HTML is built once at build time).
+  const hydrated = useHydrated();
+
+  return (
+    <section>
+      <h1
+        className="text-3xl font-extrabold mb-2 tracking-tight"
+        style={{ color: "hsl(var(--primary))" }}
+      >
+        Quarterly Rankings
+      </h1>
+      <p className="mb-6 text-base" style={{ color: "hsl(var(--muted-foreground))" }}>
+        Compare performance across quarters with{" "}
+        <span className="font-semibold" style={{ color: "hsl(var(--primary))" }}>
+          rank changes
+        </span>
+        .
+      </p>
+      {hydrated ? (
+        <QuarterlyRankings />
+      ) : (
+        <div className="min-h-[400px]" aria-busy="true" data-testid="rankings-placeholder" />
+      )}
+    </section>
+  );
+}
+
+function QuarterlyRankings(): ReactElement {
   const currentQuarter = getCurrentQuarter();
   const lastQuarter = getPreviousQuarter(currentQuarter.year, currentQuarter.quarter);
 
@@ -136,21 +166,7 @@ export function QuarterlyRankingsPanel(): ReactElement {
   const leaderboardQuarter = activeTab === "all" ? null : parseInt(activeTab.slice(1), 10);
 
   return (
-    <section>
-      <h1
-        className="text-3xl font-extrabold mb-2 tracking-tight"
-        style={{ color: "hsl(var(--primary))" }}
-      >
-        Quarterly Rankings
-      </h1>
-      <p className="mb-6 text-base" style={{ color: "hsl(var(--muted-foreground))" }}>
-        Compare performance across quarters with{" "}
-        <span className="font-semibold" style={{ color: "hsl(var(--primary))" }}>
-          rank changes
-        </span>
-        .
-      </p>
-
+    <>
       <QuarterShortcutsInline
         currentQuarter={currentQuarter}
         lastQuarter={lastQuarter}
@@ -162,6 +178,7 @@ export function QuarterlyRankingsPanel(): ReactElement {
       <div className="flex items-center gap-4 mb-4">
         <YearSelector
           selectedYear={activeYear}
+          currentYear={currentQuarter.year}
           onChange={handleYearChange}
           disabled={activeTab === "all"}
         />
@@ -205,6 +222,6 @@ export function QuarterlyRankingsPanel(): ReactElement {
           maxHeight=""
         />
       </div>
-    </section>
+    </>
   );
 }
