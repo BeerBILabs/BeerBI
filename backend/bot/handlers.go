@@ -1,9 +1,7 @@
 package main
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -19,6 +17,7 @@ type APIHandlers struct {
 	slackClient  *slack.Client
 	slackManager *SlackConnectionManager
 	redisCache   *RedisUserCache
+	users        *UserResolver
 	logger       zerolog.Logger
 	// now is the clock used for range matching and cache headers; nil means time.Now.
 	// Tests inject a fixed clock.
@@ -32,6 +31,7 @@ func NewAPIHandlers(store *SQLiteStore, slackClient *slack.Client, slackManager 
 		slackClient:  slackClient,
 		slackManager: slackManager,
 		redisCache:   redisCache,
+		users:        newUserResolverFor(store, redisCache, slackClient, logger),
 		logger:       logger,
 	}
 }
@@ -50,6 +50,26 @@ type receivedResponse struct {
 	Start    string `json:"start"`
 	End      string `json:"end"`
 	Received int    `json:"received"`
+}
+
+// newUserResolverFor wires the resolver from the concrete dependencies. Nil
+// pointers become nil interfaces so the resolver skips that layer.
+func newUserResolverFor(store *SQLiteStore, redisCache *RedisUserCache, slackClient *slack.Client, logger zerolog.Logger) *UserResolver {
+	var (
+		st userCacheStore
+		rc userRedisCache
+		sl SlackUserAPI
+	)
+	if store != nil {
+		st = store
+	}
+	if redisCache != nil {
+		rc = redisCache
+	}
+	if slackClient != nil {
+		sl = slackClient
+	}
+	return NewUserResolver(st, rc, sl, logger)
 }
 
 // GivenHandler returns the number of beers given by a user in a date range
@@ -116,7 +136,7 @@ func (h *APIHandlers) ReceivedHandler(w http.ResponseWriter, r *http.Request) {
 	}, h.rangeCacheTTL(end))
 }
 
-// UserHandler returns user information from Slack (with database caching)
+// UserHandler returns the display data of one user (Redis, SQLite cache, then Slack)
 func (h *APIHandlers) UserHandler(w http.ResponseWriter, r *http.Request) {
 	h.logger.Debug().Str("handler", "user").Str("method", r.Method).Str("path", r.URL.Path).Msg("request received")
 
@@ -127,87 +147,16 @@ func (h *APIHandlers) UserHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var realName, profileImage string
-	ctx := r.Context()
-
-	// Try Redis cache first (if available)
-	if h.redisCache != nil {
-		cached, err := h.redisCache.GetUser(ctx, userID)
-		if err == nil && cached != nil {
-			h.logger.Info().Str("handler", "user").Str("userID", userID).Msg("redis cache hit")
-			realName = cached.RealName
-			profileImage = cached.ProfileImage
-
-			response := map[string]string{
-				"real_name":     realName,
-				"profile_image": profileImage,
-			}
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(response)
-			return
-		}
-	}
-
-	// Try Slack API to get fresh data
-	user, err := h.slackClient.GetUserInfo(userID)
-	if err != nil {
-		h.logger.Warn().Str("handler", "user").Str("userID", userID).Err(err).Msg("slack API error, checking cache")
-	}
-
-	// Check if we got valid data from Slack (non-empty real_name)
-	// Deactivated users may return empty real_name even on successful API call
-	if err == nil && user.RealName != "" {
-		realName = user.RealName
-		profileImage = user.Profile.Image192
-
-		// Cache to Redis (if available)
-		if h.redisCache != nil {
-			if cacheErr := h.redisCache.SetUser(ctx, userID, realName, profileImage); cacheErr != nil {
-				h.logger.Warn().Str("handler", "user").Str("userID", userID).Err(cacheErr).Msg("failed to cache user to redis")
-			}
-		}
-
-		// Cache to SQLite
-		if cacheErr := h.store.SetCachedUser(userID, realName, profileImage); cacheErr != nil {
-			h.logger.Warn().Str("handler", "user").Str("userID", userID).Err(cacheErr).Msg("failed to cache user to sqlite")
-		}
-	} else {
-		// Slack API failed or returned empty name - try SQLite cache
-		cached, cacheErr := h.store.GetCachedUser(userID)
-		if cacheErr != nil {
-			h.logger.Error().Str("handler", "user").Str("userID", userID).Err(cacheErr).Msg("cache lookup error")
-		}
-		if cached != nil && cached.RealName != "" {
-			h.logger.Info().Str("handler", "user").Str("userID", userID).Str("real_name", cached.RealName).Msg("returning cached user")
-			realName = cached.RealName
-			profileImage = cached.ProfileImage
-		} else if err == nil && user != nil {
-			// API succeeded but no cache - return what Slack gave us (even if empty)
-			// Also use profile image from Slack if available
-			realName = user.RealName
-			profileImage = user.Profile.Image192
-			h.logger.Warn().Str("handler", "user").Str("userID", userID).Msg("slack returned empty name, no cache available")
-		} else {
-			// No cache available and API failed, return error
-			h.logger.Error().Str("handler", "user").Str("userID", userID).Msg("user not found in Slack or cache")
-			http.Error(w, "user not found", http.StatusNotFound)
-			return
-		}
-	}
-
-	h.logger.Info().Str("handler", "user").Str("userID", userID).Str("real_name", realName).Msg("request completed")
-	response := map[string]string{
-		"real_name":     realName,
-		"profile_image": profileImage,
-	}
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(response); err != nil {
-		h.logger.Error().Str("handler", "user").Err(err).Msg("failed to encode response")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	// Redis -> SQLite user_cache -> Slack users.info (see users.go).
+	info, ok := h.users.ResolveOne(r.Context(), userID, usersRequestWait)
+	if !ok {
+		h.logger.Warn().Str("handler", "user").Str("userID", userID).Msg("user not found in cache or Slack")
+		http.Error(w, "user not found", http.StatusNotFound)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write(buf.Bytes())
+
+	h.logger.Debug().Str("handler", "user").Str("userID", userID).Msg("request completed")
+	h.writeJSON(w, r, "user", http.StatusOK, info, 0)
 }
 
 // HealthHandler returns the health status of the service
@@ -320,7 +269,7 @@ func (h *APIHandlers) TopUsersHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.logger.Info().Str("handler", "top").Int("givers", len(data.Givers)).Int("recipients", len(data.Recipients)).Msg("request completed")
-	h.respondJSON(w, r, "top", data, h.rangeCacheTTL(end))
+	h.respondJSON(w, r, "top", h.withUserNamesTop(r.Context(), data), h.rangeCacheTTL(end))
 }
 
 // HeatmapHandler returns daily beer counts for calendar heatmap
@@ -373,7 +322,7 @@ func (h *APIHandlers) PairsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.logger.Info().Str("handler", "pairs").Int("pairs", len(data)).Msg("request completed")
-	h.respondJSON(w, r, "pairs", data, h.rangeCacheTTL(end))
+	h.respondJSON(w, r, "pairs", h.withUserNamesPairs(r.Context(), data), h.rangeCacheTTL(end))
 }
 
 // BatchUsersHandler returns information for multiple users in one request
@@ -414,95 +363,13 @@ func (h *APIHandlers) BatchUsersHandler(w http.ResponseWriter, r *http.Request) 
 		userIDs = userIDs[:batchSizeLimit]
 	}
 
-	ctx := r.Context()
-	results := make(map[string]map[string]string)
-	missing := []string{}
-
-	// Try Redis cache first (if available)
-	if h.redisCache != nil {
-		cached, err := h.redisCache.GetUsers(ctx, userIDs)
-		if err == nil {
-			for userID, data := range cached {
-				results[userID] = map[string]string{
-					"real_name":     data.RealName,
-					"profile_image": data.ProfileImage,
-				}
-			}
-		}
-	}
-
-	// Find missing users
-	for _, userID := range userIDs {
-		if _, ok := results[userID]; !ok {
-			missing = append(missing, userID)
-		}
-	}
-
-	// Fetch missing users from Slack API
-	if len(missing) > 0 {
-		h.logger.Debug().Str("handler", "batch_users").Int("missing", len(missing)).Msg("fetching missing users from Slack")
-
-		toCache := make(map[string]UserCacheData)
-
-		for _, userID := range missing {
-			user, err := h.slackClient.GetUserInfo(userID)
-			if err != nil {
-				h.logger.Warn().Str("handler", "batch_users").Str("userID", userID).Err(err).Msg("slack API error for user")
-
-				// Try SQLite cache as fallback
-				cached, cacheErr := h.store.GetCachedUser(userID)
-				if cacheErr == nil && cached != nil && cached.RealName != "" {
-					results[userID] = map[string]string{
-						"real_name":     cached.RealName,
-						"profile_image": cached.ProfileImage,
-					}
-				}
-				continue
-			}
-
-			if user.RealName != "" {
-				results[userID] = map[string]string{
-					"real_name":     user.RealName,
-					"profile_image": user.Profile.Image192,
-				}
-
-				// Prepare for caching
-				toCache[userID] = UserCacheData{
-					RealName:     user.RealName,
-					ProfileImage: user.Profile.Image192,
-				}
-
-				// Cache to SQLite
-				if err := h.store.SetCachedUser(userID, user.RealName, user.Profile.Image192); err != nil {
-					h.logger.Warn().Str("handler", "batch_users").Str("userID", userID).Err(err).Msg("failed to cache user to sqlite")
-				}
-			} else {
-				// Try SQLite cache for deactivated users
-				cached, cacheErr := h.store.GetCachedUser(userID)
-				if cacheErr == nil && cached != nil && cached.RealName != "" {
-					results[userID] = map[string]string{
-						"real_name":     cached.RealName,
-						"profile_image": cached.ProfileImage,
-					}
-				}
-			}
-		}
-
-		// Batch cache to Redis
-		if h.redisCache != nil && len(toCache) > 0 {
-			if err := h.redisCache.SetUsers(ctx, toCache); err != nil {
-				h.logger.Warn().Str("handler", "batch_users").Err(err).Msg("failed to batch cache users to redis")
-			}
-		}
-	}
+	// Redis -> SQLite user_cache -> Slack users.info on a bounded worker pool.
+	// Lookups still running after usersRequestWait finish in the background.
+	results := h.users.Resolve(r.Context(), userIDs, usersRequestWait)
 
 	h.logger.Info().Str("handler", "batch_users").Int("requested", len(userIDs)).Int("found", len(results)).Msg("request completed")
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(results); err != nil {
-		h.logger.Error().Str("handler", "batch_users").Err(err).Msg("failed to encode response")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
+	// No caching: the result may be partial while lookups are still running.
+	h.writeJSON(w, r, "batch_users", http.StatusOK, results, 0)
 }
 
 // matchDateRangeToCache attempts to match a date range to a cached range key
@@ -668,7 +535,7 @@ func (h *APIHandlers) CombinedAnalyticsHandler(w http.ResponseWriter, r *http.Re
 
 	// The response is as fresh as its newest series: the quarterly series covers whole years
 	// (by default up to the current one), so a closed date range alone does not make it final.
-	h.respondJSON(w, r, "combined_analytics", response, min(h.rangeCacheTTL(end), h.yearCacheTTL(endYear)))
+	h.respondJSON(w, r, "combined_analytics", h.withUserNamesCombined(r.Context(), response), min(h.rangeCacheTTL(end), h.yearCacheTTL(endYear)))
 }
 
 // topUsers returns the top givers and recipients for a range: from Redis for the common
