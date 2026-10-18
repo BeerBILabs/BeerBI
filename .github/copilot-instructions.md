@@ -42,9 +42,10 @@ cd backend/bot && CGO_ENABLED=0 go test ./...
 
 ```
 Slack message → Socket Mode → EventProcessor (events.go)
-  → Detect beer emoji → Parse @mentions → Check daily limit
-  → TryMarkEventProcessed() for deduplication
-  → Store in SQLite (beers table)
+  → Ack → TryMarkEventProcessed() for deduplication (synchronous, on the event loop)
+  → Detect beer emoji → Parse @mentions
+  → hand off to a worker (sharded by giver, `EVENT_WORKERS`)
+  → Check daily limit → Store in SQLite (beers table) → Redis → confirmation in Slack
 
 Frontend page → /api/proxy/[...path] (Next.js server-side)
   → Injects Authorization: Bearer {API_TOKEN}
@@ -57,8 +58,8 @@ The frontend never talks to the backend directly from the browser. All requests 
 
 Single Go binary with these layers:
 - **db.go** — `openDB()`: SQLite connection settings (WAL, `busy_timeout`, `synchronous=NORMAL`, pool size, `BEGIN IMMEDIATE`)
-- **main.go** — HTTP server setup, Slack Socket Mode connection, route registration, graceful shutdown
-- **events.go** — `EventProcessor`: beer emoji detection, mention parsing (`<@([A-Z0-9]+)>`), daily limit enforcement (default 10/user/day), self-gift prevention
+- **main.go** — HTTP server setup (timeouts, `newRouter` with all routes), Slack Socket Mode connection, graceful shutdown (stop Slack, drain event workers, drain HTTP, then close DB and Redis)
+- **events.go** — `EventProcessor`: beer emoji detection, mention parsing (`<@([A-Z0-9]+)>`), daily limit enforcement (default 10/user/day), self-gift prevention. After the dedup mark, beer messages run on a bounded worker pool (`StartWorkers`, one queue per shard, a giver always maps to the same shard, so the daily limit check of one user never races with its own writes)
 - **store.go** — SQLite database: schema migrations in `migrate()`, all queries. Tables: `beers`, `processed_events`, `user_cache`, `emoji_counts`
 - **handlers.go** — REST API endpoints (see below)
 - **slack.go** — `SlackConnectionManager`: auto-reconnect with exponential backoff, health monitoring every 30s
@@ -71,8 +72,7 @@ Single Go binary with these layers:
 | `GET /api/given?user=&start=&end=` | Yes | Beers given by user in date range |
 | `GET /api/received?user=&start=&end=` | Yes | Beers received by user in date range |
 | `GET /api/user?user=` | Yes | Slack user info (with cache fallback) |
-| `GET /api/givers` | No | All giver IDs |
-| `GET /api/recipients` | No | All recipient IDs |
+| `GET /api/stats/combined?start=&end=&granularity=&limit=&pairs_limit=&start_year=&end_year=` | Yes | Timeline, top users, heatmap, pairs and quarterly series in one response (queries run concurrently) |
 | `GET /api/stats/timeline?start=&end=&granularity=` | Yes | Activity timeline (day/week/month): `[{date, count}]`, one series (every beer is given and received at once) |
 | `GET /api/stats/quarterly?start_year=&end_year=` | Yes | Quarterly aggregation |
 | `GET /api/stats/top?start=&end=&limit=` | Yes | Top givers/recipients |
@@ -81,6 +81,10 @@ Single Go binary with these layers:
 | `GET /api/health` | No | Health check |
 | `GET /healthz` | No | Docker healthcheck |
 | `GET /metrics` | No | Prometheus metrics |
+
+`/api/givers` and `/api/recipients` (unauthenticated, unbounded lists) were removed; use `/api/stats/top` instead. Without a configured `API_TOKEN` every authenticated endpoint answers 401.
+
+Stats responses carry an `ETag` and `Cache-Control: private, max-age=3600` when the range ended before today (UTC) and `max-age=30` otherwise (`/api/stats/combined` also needs its quarterly years `end_year` to be over, default is the current year); a matching `If-None-Match` gets `304`. The Next.js proxy has to forward these headers. The HTTP server sets `ReadHeaderTimeout` 5 s, `ReadTimeout` 15 s, `WriteTimeout` 30 s, `IdleTimeout` 120 s and a 64 KiB header limit (`main.go`).
 
 ### Frontend (`frontend/project/`)
 
@@ -102,7 +106,7 @@ Bundle: the Recharts chart components are loaded with `next/dynamic` (`ssr: fals
 ## Important Patterns
 
 ### Event Deduplication
-Always mark events as processed BEFORE side-effects:
+Always mark events as processed BEFORE side-effects, and do it on the event loop before dispatching to a worker:
 ```go
 ok, err := store.TryMarkEventProcessed(eventID, ts)
 if !ok { return } // Already processed
@@ -135,6 +139,7 @@ Components fetch via `/api/proxy/{endpoint}`. The `Leaderboard.tsx` component us
 - `DB_PATH` — SQLite database path (default: `/data/bot.db`)
 - `PROCESSED_EVENTS_RETENTION_DAYS` — days to keep `processed_events` dedup records (default: `30`, whole days from 1 to 3650; flag `-processed-events-retention-days` overrides it; an invalid value stops the bot at startup)
 - `PORT` — HTTP server port (default: `8080`)
+- `EVENT_WORKERS` — workers that process beer messages in parallel (default: `4`, `0` = inline on the event loop)
 
 **Frontend (via compose):**
 - `NEXT_PUBLIC_BACKEND_BASE` — Backend URL (e.g., `http://backend-dev:8080`)

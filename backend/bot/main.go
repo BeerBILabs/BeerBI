@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"log"
 	"net/http"
@@ -43,6 +44,13 @@ func main() {
 		}
 	}
 	maxPerDay := flag.Int("max-per-day", maxPerDayDefault, "max beers a user may give per day") //nolint:typecheck // Used in daily limit checks
+	eventWorkersDefault := defaultEventWorkers
+	if env := os.Getenv("EVENT_WORKERS"); env != "" {
+		if v, err := strconv.Atoi(env); err == nil && v >= 0 {
+			eventWorkersDefault = v
+		}
+	}
+	eventWorkers := flag.Int("event-workers", eventWorkersDefault, "workers processing beer messages in parallel (0 = inline)")
 
 	retentionFlag := flag.String("processed-events-retention-days", os.Getenv("PROCESSED_EVENTS_RETENTION_DAYS"), "days to keep Slack event deduplication records (processed_events), 1-3650, default 30")
 	flag.Parse()
@@ -128,36 +136,13 @@ func main() {
 	// Setup HTTP handlers
 	handlers := NewAPIHandlers(store, slackManager.GetClient(), slackManager, redisCache, zlogger)
 
-	// HTTP server for health + metrics
-	mux := http.NewServeMux()
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("ok"))
-	})
-	mux.Handle("/metrics", promhttp.Handler())
-
-	// REST API endpoints
-	mux.Handle("/api/given", authMiddleware(*apiToken, zlogger, http.HandlerFunc(handlers.GivenHandler)))
-	mux.Handle("/api/received", authMiddleware(*apiToken, zlogger, http.HandlerFunc(handlers.ReceivedHandler)))
-	mux.Handle("/api/user", authMiddleware(*apiToken, zlogger, http.HandlerFunc(handlers.UserHandler)))
-	mux.Handle("/api/users", authMiddleware(*apiToken, zlogger, http.HandlerFunc(handlers.BatchUsersHandler)))
-	// Public endpoints (no auth required)
-	mux.Handle("/api/givers", http.HandlerFunc(handlers.GiversHandler))
-	mux.Handle("/api/recipients", http.HandlerFunc(handlers.RecipientsHandler))
-	mux.HandleFunc("/api/health", handlers.HealthHandler)
-
-	// Stats/Analytics endpoints (auth required)
-	mux.Handle("/api/stats/combined", authMiddleware(*apiToken, zlogger, http.HandlerFunc(handlers.CombinedAnalyticsHandler)))
-	mux.Handle("/api/stats/timeline", authMiddleware(*apiToken, zlogger, http.HandlerFunc(handlers.TimelineHandler)))
-	mux.Handle("/api/stats/quarterly", authMiddleware(*apiToken, zlogger, http.HandlerFunc(handlers.QuarterlyHandler)))
-	mux.Handle("/api/stats/top", authMiddleware(*apiToken, zlogger, http.HandlerFunc(handlers.TopUsersHandler)))
-	mux.Handle("/api/stats/heatmap", authMiddleware(*apiToken, zlogger, http.HandlerFunc(handlers.HeatmapHandler)))
-	mux.Handle("/api/stats/pairs", authMiddleware(*apiToken, zlogger, http.HandlerFunc(handlers.PairsHandler)))
-
-	srv := &http.Server{Addr: *addr, Handler: mux}
+	if *apiToken == "" {
+		zlogger.Error().Msg("API_TOKEN is not set: every endpoint below /api except /api/health will answer 401")
+	}
+	srv := newHTTPServer(*addr, newRouter(handlers, *apiToken, zlogger))
 	go func() {
 		zlogger.Info().Str("addr", *addr).Msg("HTTP server listening")
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			zlogger.Fatal().Err(err).Msg("HTTP server failed")
 		}
 	}()
@@ -168,6 +153,7 @@ func main() {
 
 	// Create event processor and handler
 	eventProcessor := NewEventProcessor(store, slackManager, redisCache, *channelID, emoji, *maxPerDay, zlogger, msgsProcessed)
+	eventProcessor.StartWorkers(*eventWorkers)
 
 	// Start Slack connection manager with automatic reconnection
 	slackManager.StartWithReconnection(ctx, eventProcessor.HandleEvent)
@@ -216,15 +202,78 @@ func main() {
 		zlogger.Info().Msg("context cancelled, shutting down")
 	}
 
-	// shutdown http
+	// Graceful shutdown. Order matters: the Slack client stopped with cancel() above (no new
+	// events), the workers finish the queued beer messages, then the HTTP server drains its
+	// requests; the deferred Close calls of the database and Redis run last.
 	zlogger.Info().Msg("initiating graceful shutdown")
-	ctxShutdown, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
+	ctxShutdown, cancelShutdown := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancelShutdown()
+	if err := eventProcessor.Shutdown(ctxShutdown); err != nil {
+		zlogger.Error().Err(err).Msg("event workers did not finish in time")
+	} else {
+		zlogger.Info().Msg("event workers drained")
+	}
 	if err := srv.Shutdown(ctxShutdown); err != nil {
 		zlogger.Error().Err(err).Msg("HTTP server shutdown error")
 	} else {
 		zlogger.Info().Msg("HTTP server shutdown completed")
 	}
 	zlogger.Info().Msg("shutdown complete")
-	// socketmode client will stop when context is cancelled / RunContext returns
+}
+
+// HTTP server limits. WriteTimeout bounds the slowest endpoint (the combined analytics query)
+// with a wide margin; the other values stop slow or idle clients from holding connections.
+const (
+	readHeaderTimeout = 5 * time.Second
+	readTimeout       = 15 * time.Second
+	writeTimeout      = 30 * time.Second
+	idleTimeout       = 120 * time.Second
+	maxHeaderBytes    = 64 << 10
+	// shutdownTimeout is the total time for draining event workers and HTTP requests.
+	shutdownTimeout = 15 * time.Second
+	// defaultEventWorkers is the default number of parallel event workers (EVENT_WORKERS).
+	defaultEventWorkers = 4
+)
+
+// newHTTPServer returns the HTTP server with timeouts and a header size limit.
+func newHTTPServer(addr string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
+		MaxHeaderBytes:    maxHeaderBytes,
+	}
+}
+
+// newRouter registers all routes. Everything below /api except /api/health needs the bearer token.
+func newRouter(handlers *APIHandlers, apiToken string, logger zerolog.Logger) http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+	mux.Handle("/metrics", promhttp.Handler())
+
+	authed := func(pattern string, h http.HandlerFunc) {
+		mux.Handle(pattern, authMiddleware(apiToken, logger, h))
+	}
+
+	// REST API endpoints (auth required)
+	authed("/api/given", handlers.GivenHandler)
+	authed("/api/received", handlers.ReceivedHandler)
+	authed("/api/user", handlers.UserHandler)
+	authed("/api/users", handlers.BatchUsersHandler)
+	mux.HandleFunc("/api/health", handlers.HealthHandler)
+
+	// Stats/Analytics endpoints (auth required)
+	authed("/api/stats/combined", handlers.CombinedAnalyticsHandler)
+	authed("/api/stats/timeline", handlers.TimelineHandler)
+	authed("/api/stats/quarterly", handlers.QuarterlyHandler)
+	authed("/api/stats/top", handlers.TopUsersHandler)
+	authed("/api/stats/heatmap", handlers.HeatmapHandler)
+	authed("/api/stats/pairs", handlers.PairsHandler)
+	return mux
 }

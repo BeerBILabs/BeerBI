@@ -84,10 +84,24 @@ func (scm *SlackConnectionManager) TestConnection(ctx context.Context) error {
 	return err
 }
 
+// maxReconnectDelay caps the exponential backoff between reconnect attempts.
+const maxReconnectDelay = 5 * time.Minute
+
+// reconnectDelay returns the wait before reconnect attempt number reconnectCount+1:
+// 2^reconnectCount seconds, at most maxReconnectDelay.
+func reconnectDelay(reconnectCount int) time.Duration {
+	if reconnectCount >= 20 { // 2^20 s already exceeds the cap; avoids duration overflow
+		return maxReconnectDelay
+	}
+	delay := time.Duration(math.Pow(2, float64(reconnectCount))) * time.Second
+	if delay > maxReconnectDelay {
+		return maxReconnectDelay
+	}
+	return delay
+}
+
 // StartWithReconnection starts the socket mode client with automatic reconnection
 func (scm *SlackConnectionManager) StartWithReconnection(ctx context.Context, eventHandler func(socketmode.Event)) {
-	const maxReconnectDelay = 5 * time.Minute
-
 	go func() {
 		for {
 			select {
@@ -100,10 +114,7 @@ func (scm *SlackConnectionManager) StartWithReconnection(ctx context.Context, ev
 				reconnectCount := scm.reconnectCount
 				scm.mu.RUnlock()
 
-				delay := time.Duration(math.Pow(2, float64(reconnectCount))) * time.Second
-				if delay > maxReconnectDelay {
-					delay = maxReconnectDelay
-				}
+				delay := reconnectDelay(reconnectCount)
 
 				if reconnectCount > 0 {
 					scm.logger.Info().Dur("delay", delay).Int("attempt", reconnectCount+1).Msg("Reconnecting to Slack")

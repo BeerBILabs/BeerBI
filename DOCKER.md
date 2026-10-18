@@ -58,6 +58,10 @@ The backend is pure Go (`CGO_ENABLED=0`, SQLite via `modernc.org/sqlite`): its b
 
 The backend runs SQLite in WAL mode. Next to `/data/bot.db` you will see `bot.db-wal` and `bot.db-shm`; they belong to the database. Back up the whole `/data` volume with the container stopped, or take an online copy with the `sqlite3` CLI (not included in the image), e.g. `sqlite3 bot.db ".backup backup.db"` in the volume directory. Copying only `bot.db` while the bot runs can miss the latest commits.
 
+### Graceful shutdown
+
+On `SIGTERM` the backend stops reading Slack events, finishes the queued beer messages (`EVENT_WORKERS`), drains open HTTP requests and then closes the database, within 15 seconds in total. Docker sends `SIGKILL` after 10 seconds by default, so give the container more time: `stop_grace_period: 20s` in Compose (set in `compose.yaml` and `compose.dev.yaml`) or `docker stop -t 20` / `docker run --stop-timeout 20`.
+
 ### Tagging Strategy
 
 **Backend:**
@@ -93,6 +97,7 @@ See [justfile](justfile) for the latest deployment instructions.
 | `EMOJI`       | ❌       | `:beer:` | Emoji to track                 |
 | `MAX_PER_DAY` | ❌       | `10`     | Maximum beers per user per day |
 | `PROCESSED_EVENTS_RETENTION_DAYS` | ❌ | `30` | Days to keep Slack event deduplication records (`processed_events`); whole days from 1 to 3650, pruned daily |
+| `EVENT_WORKERS` | ❌     | `4`      | Parallel workers for beer messages (`0` = inline) |
 
 ### Frontend
 

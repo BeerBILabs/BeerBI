@@ -11,16 +11,6 @@ import (
 	"github.com/rs/zerolog"
 )
 
-// Cache overlap constants for maintaining historical data
-const (
-	// OVERLAP_DAYS_LAST_MONTH is how many days into a new month we continue updating last month's data
-	OVERLAP_DAYS_LAST_MONTH = 7
-	// OVERLAP_DAYS_LAST_QUARTER is how many days into a new quarter we continue updating last quarter's data
-	OVERLAP_DAYS_LAST_QUARTER = 7
-	// OVERLAP_MONTH_IN_QUARTER is the month number within a quarter (1-3) to determine if we need last quarter data
-	OVERLAP_MONTH_IN_QUARTER = 1
-)
-
 // UserCacheData represents cached user information
 type UserCacheData struct {
 	RealName     string    `json:"real_name"`
@@ -280,48 +270,42 @@ const (
 	RangeToday          = "today"
 )
 
-// IncrementGivenStats performs a write-through cache update for beers given by a user.
+// IncrementGivenStats performs a write-through cache update for beers given by a user just now.
 func (r *RedisUserCache) IncrementGivenStats(ctx context.Context, userID string, count int) error {
+	return r.IncrementGivenStatsAt(ctx, userID, count, time.Now())
+}
+
+// IncrementGivenStatsAt is IncrementGivenStats for a beer given at the given time.
+func (r *RedisUserCache) IncrementGivenStatsAt(ctx context.Context, userID string, count int, at time.Time) error {
+	return r.incrementStats(ctx, "givers", userID, count, at)
+}
+
+// IncrementReceivedStats increments beer received count for a user in common date ranges
+func (r *RedisUserCache) IncrementReceivedStats(ctx context.Context, userID string, count int) error {
+	return r.IncrementReceivedStatsAt(ctx, userID, count, time.Now())
+}
+
+// IncrementReceivedStatsAt is IncrementReceivedStats for a beer given at the given time.
+func (r *RedisUserCache) IncrementReceivedStatsAt(ctx context.Context, userID string, count int, at time.Time) error {
+	return r.incrementStats(ctx, "recipients", userID, count, at)
+}
+
+// incrementStats adds count to the leaderboard of kind ("givers" or "recipients") in every
+// cached range that contains a beer given at the given time.
+func (r *RedisUserCache) incrementStats(ctx context.Context, kind, userID string, count int, at time.Time) error {
 	if r.circuitBreaker.IsOpen() {
 		r.logger.Debug().Msg("circuit breaker open, skipping redis write")
 		return nil // Gracefully skip
 	}
 
-	ranges := r.calculateActiveRanges()
-
 	pipe := r.client.Pipeline()
-	for _, rangeKey := range ranges {
+	for _, rangeKey := range rangesForEvent(at, time.Now()) {
 		// Increment leaderboard sorted set (score = total count)
-		pipe.ZIncrBy(ctx, fmt.Sprintf("leaderboard:givers:%s", rangeKey), float64(count), userID)
+		pipe.ZIncrBy(ctx, fmt.Sprintf("leaderboard:%s:%s", kind, rangeKey), float64(count), userID)
 	}
 
 	if _, err := pipe.Exec(ctx); err != nil {
-		r.logger.Warn().Err(err).Str("userID", userID).Msg("failed to increment given stats")
-		r.circuitBreaker.RecordFailure()
-		return err
-	}
-
-	r.circuitBreaker.RecordSuccess()
-	return nil
-}
-
-// IncrementReceivedStats increments beer received count for a user in common date ranges
-func (r *RedisUserCache) IncrementReceivedStats(ctx context.Context, userID string, count int) error {
-	if r.circuitBreaker.IsOpen() {
-		r.logger.Debug().Msg("circuit breaker open, skipping redis write")
-		return nil
-	}
-
-	ranges := r.calculateActiveRanges()
-
-	pipe := r.client.Pipeline()
-	for _, rangeKey := range ranges {
-		// Increment leaderboard sorted set
-		pipe.ZIncrBy(ctx, fmt.Sprintf("leaderboard:recipients:%s", rangeKey), float64(count), userID)
-	}
-
-	if _, err := pipe.Exec(ctx); err != nil {
-		r.logger.Warn().Err(err).Str("userID", userID).Msg("failed to increment received stats")
+		r.logger.Warn().Err(err).Str("userID", userID).Str("kind", kind).Msg("failed to increment stats")
 		r.circuitBreaker.RecordFailure()
 		return err
 	}
@@ -393,31 +377,58 @@ func (r *RedisUserCache) GetTopRecipients(ctx context.Context, rangeKey string, 
 	return stats, nil
 }
 
-// calculateActiveRanges returns which date range keys should be updated for the current date
+// calculateActiveRanges returns the range keys that contain a beer given right now.
 func (r *RedisUserCache) calculateActiveRanges() []string {
 	now := time.Now()
-	ranges := []string{RangeAllTime, RangeToday}
+	return rangesForEvent(now, now)
+}
 
-	// Current quarter
-	ranges = append(ranges, RangeCurrentQuarter)
+// rangesForEvent returns the keys of the cached ranges (as seen from now) that contain a beer
+// given at eventTime. A beer from the current month belongs to current-month and never to
+// last-month, likewise for quarters; last-month, last-quarter and the older days of
+// last-7-days only matter for late events. Calendar days are taken in now's location, like
+// matchDateRangeToCache and PopulateFromDB do.
+func rangesForEvent(eventTime, now time.Time) []string {
+	day := dayStart(eventTime.In(now.Location()))
+	today := dayStart(now)
+	ranges := []string{RangeAllTime}
 
-	// Current month
-	ranges = append(ranges, RangeCurrentMonth)
-
-	// Last 7 days
-	ranges = append(ranges, RangeLast7Days)
-
-	// Last quarter (if we're in the configured overlap month of a quarter, also update last quarter)
-	if ((int(now.Month())-1)%3)+1 == OVERLAP_MONTH_IN_QUARTER && now.Day() <= OVERLAP_DAYS_LAST_QUARTER {
-		ranges = append(ranges, RangeLastQuarter)
+	if day.Equal(today) {
+		ranges = append(ranges, RangeToday)
+	}
+	if !day.After(today) && !day.Before(today.AddDate(0, 0, -6)) {
+		ranges = append(ranges, RangeLast7Days)
 	}
 
-	// Last month (if we're in first week of month, also update last month)
-	if now.Day() <= OVERLAP_DAYS_LAST_MONTH {
+	monthStart := time.Date(today.Year(), today.Month(), 1, 0, 0, 0, 0, today.Location())
+	lastMonthStart := monthStart.AddDate(0, -1, 0)
+	switch {
+	case !day.Before(monthStart) && day.Before(monthStart.AddDate(0, 1, 0)):
+		ranges = append(ranges, RangeCurrentMonth)
+	case !day.Before(lastMonthStart) && day.Before(monthStart):
 		ranges = append(ranges, RangeLastMonth)
 	}
 
+	quarterStart := time.Date(today.Year(), getQuarterStartMonth(getQuarterNumber(today)), 1, 0, 0, 0, 0, today.Location())
+	lastQuarterStart := quarterStart.AddDate(0, -3, 0)
+	switch {
+	case !day.Before(quarterStart) && day.Before(quarterStart.AddDate(0, 3, 0)):
+		ranges = append(ranges, RangeCurrentQuarter)
+	case !day.Before(lastQuarterStart) && day.Before(quarterStart):
+		ranges = append(ranges, RangeLastQuarter)
+	}
+
 	return ranges
+}
+
+// dayStart returns midnight of t's calendar day in t's location.
+func dayStart(t time.Time) time.Time {
+	return time.Date(t.Year(), t.Month(), t.Day(), 0, 0, 0, 0, t.Location())
+}
+
+// untilNextMidnight returns how long it is until the next local midnight after now.
+func untilNextMidnight(now time.Time) time.Duration {
+	return dayStart(now).AddDate(0, 0, 1).Sub(now)
 }
 
 // PopulateFromDB rebuilds Redis cache from SQLite database
@@ -532,6 +543,11 @@ func (r *RedisUserCache) StartSyncWorker(ctx context.Context, store *SQLiteStore
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
+	// "today" and "last-7-days" are incremented in place, so after midnight they would keep
+	// the old day until the next tick. Rebuild all ranges right after every local midnight.
+	midnight := time.NewTimer(untilNextMidnight(time.Now()) + time.Second)
+	defer midnight.Stop()
+
 	for {
 		select {
 		case <-ticker.C:
@@ -539,6 +555,12 @@ func (r *RedisUserCache) StartSyncWorker(ctx context.Context, store *SQLiteStore
 			if err := r.PopulateFromDB(ctx, store); err != nil {
 				r.logger.Error().Err(err).Msg("periodic redis sync failed")
 			}
+		case <-midnight.C:
+			r.logger.Debug().Msg("day changed, rebuilding redis ranges")
+			if err := r.PopulateFromDB(ctx, store); err != nil {
+				r.logger.Error().Err(err).Msg("redis sync after midnight failed")
+			}
+			midnight.Reset(untilNextMidnight(time.Now()) + time.Second)
 		case <-ctx.Done():
 			r.logger.Info().Msg("redis sync worker stopping")
 			return

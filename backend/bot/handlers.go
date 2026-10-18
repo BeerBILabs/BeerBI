@@ -2,8 +2,8 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -20,6 +20,9 @@ type APIHandlers struct {
 	slackManager *SlackConnectionManager
 	redisCache   *RedisUserCache
 	logger       zerolog.Logger
+	// now is the clock used for range matching and cache headers; nil means time.Now.
+	// Tests inject a fixed clock.
+	now func() time.Time
 }
 
 // NewAPIHandlers creates a new APIHandlers instance
@@ -31,6 +34,22 @@ func NewAPIHandlers(store *SQLiteStore, slackClient *slack.Client, slackManager 
 		redisCache:   redisCache,
 		logger:       logger,
 	}
+}
+
+// givenResponse is the JSON body of GET /api/given.
+type givenResponse struct {
+	User  string `json:"user"`
+	Start string `json:"start"`
+	End   string `json:"end"`
+	Given int    `json:"given"`
+}
+
+// receivedResponse is the JSON body of GET /api/received.
+type receivedResponse struct {
+	User     string `json:"user"`
+	Start    string `json:"start"`
+	End      string `json:"end"`
+	Received int    `json:"received"`
 }
 
 // GivenHandler returns the number of beers given by a user in a date range
@@ -57,9 +76,12 @@ func (h *APIHandlers) GivenHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.logger.Info().Str("handler", "given").Str("user", user).Int("count", c).Msg("request completed")
-	w.Header().Set("Content-Type", "application/json")
-	_, _ = fmt.Fprintf(w, `{"user":"%s","start":"%s","end":"%s","given":%d}`,
-		user, start.Format("2006-01-02"), end.Format("2006-01-02"), c)
+	h.respondJSON(w, r, "given", givenResponse{
+		User:  user,
+		Start: start.Format(dateLayout),
+		End:   end.Format(dateLayout),
+		Given: c,
+	}, h.rangeCacheTTL(end))
 }
 
 // ReceivedHandler returns the number of beers received by a user in a date range
@@ -86,9 +108,12 @@ func (h *APIHandlers) ReceivedHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.logger.Info().Str("handler", "received").Str("user", user).Int("count", c).Msg("request completed")
-	w.Header().Set("Content-Type", "application/json")
-	_, _ = fmt.Fprintf(w, `{"user":"%s","start":"%s","end":"%s","received":%d}`,
-		user, start.Format("2006-01-02"), end.Format("2006-01-02"), c)
+	h.respondJSON(w, r, "received", receivedResponse{
+		User:     user,
+		Start:    start.Format(dateLayout),
+		End:      end.Format(dateLayout),
+		Received: c,
+	}, h.rangeCacheTTL(end))
 }
 
 // UserHandler returns user information from Slack (with database caching)
@@ -185,55 +210,9 @@ func (h *APIHandlers) UserHandler(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(buf.Bytes())
 }
 
-// GiversHandler returns the list of all givers
-func (h *APIHandlers) GiversHandler(w http.ResponseWriter, r *http.Request) {
-	h.logger.Debug().Str("handler", "givers").Str("method", r.Method).Str("path", r.URL.Path).Msg("request received")
-
-	list, err := h.store.GetAllGivers()
-	if err != nil {
-		h.logger.Error().Str("handler", "givers").Err(err).Msg("database error")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	h.logger.Info().Str("handler", "givers").Int("count", len(list)).Msg("request completed")
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(list); err != nil {
-		h.logger.Error().Str("handler", "givers").Err(err).Msg("failed to encode response")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write(buf.Bytes())
-}
-
-// RecipientsHandler returns the list of all recipients
-func (h *APIHandlers) RecipientsHandler(w http.ResponseWriter, r *http.Request) {
-	h.logger.Debug().Str("handler", "recipients").Str("method", r.Method).Str("path", r.URL.Path).Msg("request received")
-
-	list, err := h.store.GetAllRecipients()
-	if err != nil {
-		h.logger.Error().Str("handler", "recipients").Err(err).Msg("database error")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	h.logger.Info().Str("handler", "recipients").Int("count", len(list)).Msg("request completed")
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(list); err != nil {
-		h.logger.Error().Str("handler", "recipients").Err(err).Msg("failed to encode response")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write(buf.Bytes())
-}
-
 // HealthHandler returns the health status of the service
 func (h *APIHandlers) HealthHandler(w http.ResponseWriter, r *http.Request) {
 	h.logger.Debug().Str("handler", "health").Str("method", r.Method).Str("path", r.URL.Path).Msg("request received")
-
-	w.Header().Set("Content-Type", "application/json")
 
 	health := map[string]interface{}{
 		"status":          "healthy",
@@ -257,14 +236,7 @@ func (h *APIHandlers) HealthHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.logger.Info().Str("handler", "health").Str("status", health["status"].(string)).Msg("request completed")
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(health); err != nil {
-		h.logger.Error().Str("handler", "health").Err(err).Msg("failed to encode response")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(statusCode)
-	_, _ = w.Write(buf.Bytes())
+	h.writeJSON(w, r, "health", statusCode, health, 0)
 }
 
 // ============================================================================
@@ -300,14 +272,7 @@ func (h *APIHandlers) TimelineHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.logger.Info().Str("handler", "timeline").Int("points", len(data)).Str("granularity", granularity).Msg("request completed")
-	w.Header().Set("Content-Type", "application/json")
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(data); err != nil {
-		h.logger.Error().Str("handler", "timeline").Err(err).Msg("failed to encode response")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	_, _ = w.Write(buf.Bytes())
+	h.respondJSON(w, r, "timeline", data, h.rangeCacheTTL(end))
 }
 
 // QuarterlyHandler returns beer counts aggregated by quarter
@@ -315,23 +280,7 @@ func (h *APIHandlers) TimelineHandler(w http.ResponseWriter, r *http.Request) {
 func (h *APIHandlers) QuarterlyHandler(w http.ResponseWriter, r *http.Request) {
 	h.logger.Info().Str("handler", "quarterly").Str("method", r.Method).Str("path", r.URL.Path).Str("query", r.URL.RawQuery).Msg("request received")
 
-	startYearStr := r.URL.Query().Get("start_year")
-	endYearStr := r.URL.Query().Get("end_year")
-
-	currentYear := time.Now().Year()
-	startYear := currentYear - 2
-	endYear := currentYear
-
-	if startYearStr != "" {
-		if v, err := strconv.Atoi(startYearStr); err == nil {
-			startYear = v
-		}
-	}
-	if endYearStr != "" {
-		if v, err := strconv.Atoi(endYearStr); err == nil {
-			endYear = v
-		}
-	}
+	startYear, endYear := h.parseYearRange(r)
 
 	data, err := h.store.GetQuarterlyStats(startYear, endYear)
 	if err != nil {
@@ -341,14 +290,7 @@ func (h *APIHandlers) QuarterlyHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.logger.Info().Str("handler", "quarterly").Int("quarters", len(data)).Msg("request completed")
-	w.Header().Set("Content-Type", "application/json")
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(data); err != nil {
-		h.logger.Error().Str("handler", "quarterly").Err(err).Msg("failed to encode response")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	_, _ = w.Write(buf.Bytes())
+	h.respondJSON(w, r, "quarterly", data, h.yearCacheTTL(endYear))
 }
 
 // TopUsersHandler returns top N givers and recipients
@@ -370,45 +312,15 @@ func (h *APIHandlers) TopUsersHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Try to match date range to a common cached range
-	rangeKey := h.matchDateRangeToCache(start, end)
-	var data *TopUsersResult
-
-	// Try Redis cache first for common ranges
-	if rangeKey != "" && h.redisCache != nil {
-		givers, errG := h.redisCache.GetTopGivers(r.Context(), rangeKey, limit)
-		recipients, errR := h.redisCache.GetTopRecipients(r.Context(), rangeKey, limit)
-
-		if errG == nil && errR == nil && givers != nil && recipients != nil {
-			h.logger.Info().Str("handler", "top").Str("range", rangeKey).Msg("redis cache hit")
-			data = &TopUsersResult{
-				Givers:     givers,
-				Recipients: recipients,
-			}
-		}
-	}
-
-	// Fall back to database if cache miss or error
-	if data == nil {
-		h.logger.Debug().Str("handler", "top").Msg("falling back to database")
-		dbData, err := h.store.GetTopUsers(start, end, limit)
-		if err != nil {
-			h.logger.Error().Str("handler", "top").Err(err).Msg("database error")
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		data = dbData
-	}
-
-	h.logger.Info().Str("handler", "top").Int("givers", len(data.Givers)).Int("recipients", len(data.Recipients)).Msg("request completed")
-	w.Header().Set("Content-Type", "application/json")
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(data); err != nil {
-		h.logger.Error().Str("handler", "top").Err(err).Msg("failed to encode response")
+	data, err := h.topUsers(r.Context(), "top", start, end, limit)
+	if err != nil {
+		h.logger.Error().Str("handler", "top").Err(err).Msg("database error")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	_, _ = w.Write(buf.Bytes())
+
+	h.logger.Info().Str("handler", "top").Int("givers", len(data.Givers)).Int("recipients", len(data.Recipients)).Msg("request completed")
+	h.respondJSON(w, r, "top", data, h.rangeCacheTTL(end))
 }
 
 // HeatmapHandler returns daily beer counts for calendar heatmap
@@ -431,14 +343,7 @@ func (h *APIHandlers) HeatmapHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.logger.Info().Str("handler", "heatmap").Int("days", len(data)).Msg("request completed")
-	w.Header().Set("Content-Type", "application/json")
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(data); err != nil {
-		h.logger.Error().Str("handler", "heatmap").Err(err).Msg("failed to encode response")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	_, _ = w.Write(buf.Bytes())
+	h.respondJSON(w, r, "heatmap", data, h.rangeCacheTTL(end))
 }
 
 // PairsHandler returns giver→recipient pairs for network visualization
@@ -468,14 +373,7 @@ func (h *APIHandlers) PairsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.logger.Info().Str("handler", "pairs").Int("pairs", len(data)).Msg("request completed")
-	w.Header().Set("Content-Type", "application/json")
-	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(data); err != nil {
-		h.logger.Error().Str("handler", "pairs").Err(err).Msg("failed to encode response")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	_, _ = w.Write(buf.Bytes())
+	h.respondJSON(w, r, "pairs", data, h.rangeCacheTTL(end))
 }
 
 // BatchUsersHandler returns information for multiple users in one request
@@ -610,7 +508,7 @@ func (h *APIHandlers) BatchUsersHandler(w http.ResponseWriter, r *http.Request) 
 // matchDateRangeToCache attempts to match a date range to a cached range key
 // Returns empty string if no match (caller should fall back to database)
 func (h *APIHandlers) matchDateRangeToCache(start, end time.Time) string {
-	now := time.Now()
+	now := h.clock()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 
 	// Today
@@ -674,15 +572,19 @@ func isSameDay(t1, t2 time.Time) bool {
 
 // CombinedAnalyticsResponse holds all analytics data for a date range
 type CombinedAnalyticsResponse struct {
-	Timeline      []TimelinePoint `json:"timeline"`
-	TopGivers     []TopUserStats  `json:"top_givers"`
-	TopRecipients []TopUserStats  `json:"top_recipients"`
-	Heatmap       []HeatmapPoint  `json:"heatmap"`
-	Pairs         []PairStats     `json:"pairs"`
+	Timeline      []TimelinePoint  `json:"timeline"`
+	TopGivers     []TopUserStats   `json:"top_givers"`
+	TopRecipients []TopUserStats   `json:"top_recipients"`
+	Heatmap       []HeatmapPoint   `json:"heatmap"`
+	Pairs         []PairStats      `json:"pairs"`
+	Quarterly     []QuarterlyStats `json:"quarterly"`
 }
 
-// CombinedAnalyticsHandler returns all analytics data in one request
-// Query params: start, end (YYYY-MM-DD), granularity (day|week|month), limit (default 20), pairs_limit (default 15)
+// CombinedAnalyticsHandler returns all analytics data in one request. The independent
+// queries run concurrently (they only read, and SQLite serves concurrent readers).
+// Query params: start, end (YYYY-MM-DD), granularity (day|week|month), limit (default 20),
+// pairs_limit (default 15), start_year, end_year (quarterly series, same defaults as
+// /api/stats/quarterly)
 func (h *APIHandlers) CombinedAnalyticsHandler(w http.ResponseWriter, r *http.Request) {
 	h.logger.Info().Str("handler", "combined_analytics").Str("method", r.Method).Str("path", r.URL.Path).Str("query", r.URL.RawQuery).Msg("request received")
 
@@ -717,67 +619,42 @@ func (h *APIHandlers) CombinedAnalyticsHandler(w http.ResponseWriter, r *http.Re
 		}
 	}
 
+	startYear, endYear := h.parseYearRange(r)
+
+	// Every task writes only its own field of response, so no locking is needed.
 	response := CombinedAnalyticsResponse{}
-
-	// Fetch timeline data
-	timelineData, err := h.store.GetTimelineStats(start, end, granularity)
-	if err != nil {
-		h.logger.Error().Str("handler", "combined_analytics").Err(err).Msg("failed to fetch timeline")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	response.Timeline = timelineData
-
-	// Fetch top users (try Redis cache first for common ranges)
-	rangeKey := h.matchDateRangeToCache(start, end)
-	if rangeKey != "" && h.redisCache != nil {
-		givers, errG := h.redisCache.GetTopGivers(r.Context(), rangeKey, limit)
-		recipients, errR := h.redisCache.GetTopRecipients(r.Context(), rangeKey, limit)
-
-		if errG == nil && errR == nil && givers != nil && recipients != nil {
-			h.logger.Debug().Str("handler", "combined_analytics").Str("range", rangeKey).Msg("redis cache hit for top users")
-			response.TopGivers = givers
-			response.TopRecipients = recipients
-		} else {
-			// Fall back to database
-			topUsers, err := h.store.GetTopUsers(start, end, limit)
+	err = runParallel([]namedTask{
+		{"timeline", func() (err error) {
+			response.Timeline, err = h.store.GetTimelineStats(start, end, granularity)
+			return err
+		}},
+		{"top users", func() error {
+			topUsers, err := h.topUsers(r.Context(), "combined_analytics", start, end, limit)
 			if err != nil {
-				h.logger.Error().Str("handler", "combined_analytics").Err(err).Msg("failed to fetch top users")
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				return
+				return err
 			}
 			response.TopGivers = topUsers.Givers
 			response.TopRecipients = topUsers.Recipients
-		}
-	} else {
-		// Fetch from database
-		topUsers, err := h.store.GetTopUsers(start, end, limit)
-		if err != nil {
-			h.logger.Error().Str("handler", "combined_analytics").Err(err).Msg("failed to fetch top users")
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-		response.TopGivers = topUsers.Givers
-		response.TopRecipients = topUsers.Recipients
-	}
-
-	// Fetch heatmap data
-	heatmapData, err := h.store.GetHeatmapStats(start, end)
+			return nil
+		}},
+		{"heatmap", func() (err error) {
+			response.Heatmap, err = h.store.GetHeatmapStats(start, end)
+			return err
+		}},
+		{"pairs", func() (err error) {
+			response.Pairs, err = h.store.GetPairStats(start, end, pairsLimit)
+			return err
+		}},
+		{"quarterly", func() (err error) {
+			response.Quarterly, err = h.store.GetQuarterlyStats(startYear, endYear)
+			return err
+		}},
+	})
 	if err != nil {
-		h.logger.Error().Str("handler", "combined_analytics").Err(err).Msg("failed to fetch heatmap")
+		h.logger.Error().Str("handler", "combined_analytics").Err(err).Msg("failed to fetch analytics")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	response.Heatmap = heatmapData
-
-	// Fetch pairs data
-	pairsData, err := h.store.GetPairStats(start, end, pairsLimit)
-	if err != nil {
-		h.logger.Error().Str("handler", "combined_analytics").Err(err).Msg("failed to fetch pairs")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	response.Pairs = pairsData
 
 	h.logger.Info().
 		Str("handler", "combined_analytics").
@@ -786,12 +663,42 @@ func (h *APIHandlers) CombinedAnalyticsHandler(w http.ResponseWriter, r *http.Re
 		Int("top_recipients", len(response.TopRecipients)).
 		Int("heatmap_days", len(response.Heatmap)).
 		Int("pairs", len(response.Pairs)).
+		Int("quarters", len(response.Quarterly)).
 		Msg("request completed")
 
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(response); err != nil {
-		h.logger.Error().Str("handler", "combined_analytics").Err(err).Msg("failed to encode response")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+	// The response is as fresh as its newest series: the quarterly series covers whole years
+	// (by default up to the current one), so a closed date range alone does not make it final.
+	h.respondJSON(w, r, "combined_analytics", response, min(h.rangeCacheTTL(end), h.yearCacheTTL(endYear)))
+}
+
+// topUsers returns the top givers and recipients for a range: from Redis for the common
+// cached ranges, otherwise (or on a cache miss or error) from SQLite.
+func (h *APIHandlers) topUsers(ctx context.Context, handler string, start, end time.Time, limit int) (*TopUsersResult, error) {
+	rangeKey := h.matchDateRangeToCache(start, end)
+	if rangeKey != "" && h.redisCache != nil {
+		givers, errG := h.redisCache.GetTopGivers(ctx, rangeKey, limit)
+		recipients, errR := h.redisCache.GetTopRecipients(ctx, rangeKey, limit)
+
+		if errG == nil && errR == nil && givers != nil && recipients != nil {
+			h.logger.Debug().Str("handler", handler).Str("range", rangeKey).Msg("redis cache hit")
+			return &TopUsersResult{Givers: givers, Recipients: recipients}, nil
+		}
 	}
+	h.logger.Debug().Str("handler", handler).Msg("reading top users from database")
+	return h.store.GetTopUsers(start, end, limit)
+}
+
+// parseYearRange reads start_year and end_year (default: the current year and the two before).
+// Unparsable values fall back to the default.
+func (h *APIHandlers) parseYearRange(r *http.Request) (startYear, endYear int) {
+	currentYear := h.clock().Year()
+	startYear = currentYear - 2
+	endYear = currentYear
+	if v, err := strconv.Atoi(r.URL.Query().Get("start_year")); err == nil {
+		startYear = v
+	}
+	if v, err := strconv.Atoi(r.URL.Query().Get("end_year")); err == nil {
+		endYear = v
+	}
+	return startYear, endYear
 }
