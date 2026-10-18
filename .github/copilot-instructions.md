@@ -62,6 +62,8 @@ Single Go binary with these layers:
 - **events.go** — `EventProcessor`: beer emoji detection, mention parsing (`<@([A-Z0-9]+)>`), daily limit enforcement (default 10/user/day), self-gift prevention. After the dedup mark, beer messages run on a bounded worker pool (`StartWorkers`, one queue per shard, a giver always maps to the same shard, so the daily limit check of one user never races with its own writes)
 - **store.go** — SQLite database: schema migrations in `migrate()`, all queries. Tables: `beers`, `processed_events`, `user_cache`, `emoji_counts`
 - **handlers.go** — REST API endpoints (see below)
+- **users.go** — `UserResolver`: user names via Redis → SQLite `user_cache` → Slack `users.info` (bounded worker pool, in-flight de-dup, `users.list` warmup at start and daily); `stats_names.go` inlines names into the stats responses
+- **redis.go** — Redis user cache and leaderboard cache for the common date ranges (rebuilt from SQLite every 5 minutes)
 - **slack.go** — `SlackConnectionManager`: auto-reconnect with exponential backoff, health monitoring every 30s
 - **middleware.go** — Bearer token auth (constant-time comparison)
 
@@ -71,13 +73,14 @@ Single Go binary with these layers:
 |----------|------|---------|
 | `GET /api/given?user=&start=&end=` | Yes | Beers given by user in date range |
 | `GET /api/received?user=&start=&end=` | Yes | Beers received by user in date range |
-| `GET /api/user?user=` | Yes | Slack user info (with cache fallback) |
-| `GET /api/stats/combined?start=&end=&granularity=&limit=&pairs_limit=&start_year=&end_year=` | Yes | Timeline, top users, heatmap, pairs and quarterly series in one response (queries run concurrently) |
+| `GET /api/user?user=` | Yes | One user: `{"real_name","profile_image"}` (Redis → SQLite → Slack; 404 if unknown) |
+| `GET /api/users?ids=U1,U2` | Yes | Up to 100 users: `{"U1":{"real_name","profile_image"}}`; IDs without a name are omitted |
+| `GET /api/stats/combined?start=&end=&granularity=&limit=&pairs_limit=&start_year=&end_year=` | Yes | Timeline, top users, heatmap, pairs and quarterly series in one response (queries run concurrently, names inline) |
 | `GET /api/stats/timeline?start=&end=&granularity=` | Yes | Activity timeline (day/week/month): `[{date, count}]`, one series (every beer is given and received at once) |
 | `GET /api/stats/quarterly?start_year=&end_year=` | Yes | Quarterly aggregation |
-| `GET /api/stats/top?start=&end=&limit=` | Yes | Top givers/recipients |
+| `GET /api/stats/top?start=&end=&limit=` | Yes | Top givers/recipients (names inline) |
 | `GET /api/stats/heatmap?start=&end=` | Yes | Calendar heatmap data |
-| `GET /api/stats/pairs?start=&end=&limit=` | Yes | Giver→recipient network data |
+| `GET /api/stats/pairs?start=&end=&limit=` | Yes | Giver→recipient network data (names inline) |
 | `GET /api/health` | No | Health check |
 | `GET /healthz` | No | Docker healthcheck |
 | `GET /metrics` | No | Prometheus metrics |
@@ -114,8 +117,10 @@ if !ok { return } // Already processed
 ```
 `processed_events` only needs to cover Slack's redelivery window (minutes). Records older than `PROCESSED_EVENTS_RETENTION_DAYS` (default 30, 1–3650 days) are pruned daily (`RunProcessedEventsPruner`), so dedup only applies to events redelivered within that window.
 
-### User Caching (two layers)
-- **Backend:** `user_cache` SQLite table — survives restarts, allows showing deactivated Slack users
+### User Names and Caching
+- **Backend:** `UserResolver` (`users.go`) looks up Redis `user:<id>` (7-day TTL), then the `user_cache` SQLite table, then Slack `users.info`. SQLite rows older than 7 days are served and refreshed in the background. Slack calls run on a shared pool of 10 workers, are de-duplicated while in flight and write through to SQLite and Redis; `/api/user(s)` waits at most 8 s, a stats response at most 1 s, and unfinished lookups keep filling the caches. `users.list` warms both caches at start and daily (needs the `users:read` scope). An empty Slack name (deactivated user) never overwrites a cached name.
+- **Inline names (B6.4):** `/api/stats/top`, `/api/stats/pairs` and `/api/stats/combined` add `real_name`/`profile_image` to each top-user entry and `giver_name`/`giver_image`/`recipient_name`/`recipient_image` to each pair. The fields are omitted when a user cannot be resolved; fall back to `/api/users` for those IDs.
+- **Leaderboard cache:** a Redis range counts as cached only after a full rebuild from SQLite (`leaderboard:ready:<range>`, same `MULTI` as the sorted sets). After a Redis restart the handlers read SQLite until the next sync.
 - **Frontend:** localStorage with 7-day TTL (`lib/userCache.ts`) — reduces API calls, enables offline viewing of previously loaded data
 
 ### Database Migrations

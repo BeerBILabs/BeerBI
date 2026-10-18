@@ -22,14 +22,18 @@ All endpoints require Bearer token authentication.
 - `GET /api/given?user={user_id}&start={date}&end={date}`
 - `GET /api/received?user={user_id}&start={date}&end={date}`
 
-### User Management
+### Users
 
-- `GET /api/user?user={user_id}`
+- `GET /api/user?user={user_id}` → `{"real_name": "...", "profile_image": "..."}`
+- `GET /api/users?ids={id1},{id2}` (max. 100) → `{"<id>": {"real_name": "...", "profile_image": "..."}}`
+
+Names are resolved Redis → SQLite `user_cache` → Slack `users.info` (10 parallel workers) and preloaded from `users.list` at start and daily (scope `users:read`).
 
 ### Analytics
 
 - `GET /api/stats/combined?start={date}&end={date}` (timeline, top users, heatmap, pairs and quarterly series in one response)
 - `GET /api/stats/timeline`, `/api/stats/quarterly`, `/api/stats/top`, `/api/stats/heatmap`, `/api/stats/pairs`
+- Top-user entries carry `real_name` and `profile_image`, pairs carry `giver_name`, `giver_image`, `recipient_name`, `recipient_image`. The fields are omitted when a name is unknown.
 
 Responses carry `ETag` and `Cache-Control` (1 hour for ranges that ended before today, 30 s otherwise; the combined response counts as current while its quarterly series includes the current year).
 
