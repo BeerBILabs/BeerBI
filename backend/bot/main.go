@@ -51,7 +51,19 @@ func main() {
 		log.Fatal("bot-token, app-token and channel must be provided via flags or env (BOT_TOKEN, APP_TOKEN, CHANNEL)")
 	}
 
-	// open sqlite
+	// structured logger (zerolog)
+	zerolog.TimeFieldFormat = time.RFC3339
+	zlogger := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Logger()
+
+	// Set log level from flag
+	level, err := zerolog.ParseLevel(*logLevel)
+	if err != nil {
+		level = zerolog.InfoLevel // default to info if invalid/empty
+	}
+	zlogger = zlogger.Level(level)
+	zlog.Logger = zlogger
+
+	// open sqlite (the logger is set up first so migration messages use it)
 	dbDir := ""
 	dbFile := *dbPath
 	if idx := strings.LastIndex(dbFile, "/"); idx != -1 {
@@ -77,18 +89,6 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-
-	// structured logger (zerolog)
-	zerolog.TimeFieldFormat = time.RFC3339
-	zlogger := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Logger()
-
-	// Set log level from flag
-	level, err := zerolog.ParseLevel(*logLevel)
-	if err != nil {
-		level = zerolog.InfoLevel // default to info if invalid/empty
-	}
-	zlogger = zlogger.Level(level)
-	zlog.Logger = zlogger
 
 	// Initialize Redis cache
 	redisAddr := os.Getenv("REDIS_ADDR")
@@ -159,6 +159,9 @@ func main() {
 
 	// Start Slack connection manager with automatic reconnection
 	slackManager.StartWithReconnection(ctx, eventProcessor.HandleEvent)
+
+	// Prune Slack event deduplication records older than 30 days, daily.
+	go store.RunProcessedEventsPruner(ctx, 24*time.Hour, 30*24*time.Hour)
 
 	// Start Redis sync worker (if Redis is available)
 	if redisCache != nil {
