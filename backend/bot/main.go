@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"flag"
 	"log"
 	"net/http"
@@ -13,7 +12,6 @@ import (
 	"syscall"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog"
@@ -76,16 +74,23 @@ func main() {
 			}
 		}
 	}
-	db, err := sql.Open("sqlite3", dbFile)
+	db, err := openDB(dbFile)
 	if err != nil {
 		log.Fatalf("open db: %v", err)
 	}
-	defer func() { _ = db.Close() }()
 
 	store, err := NewSQLiteStore(db)
 	if err != nil {
+		_ = db.Close()
 		log.Fatalf("init store: %v", err)
 	}
+	// Runs PRAGMA optimize before closing (deferred calls run on return from
+	// main, after the graceful shutdown below).
+	defer func() {
+		if err := store.Close(); err != nil {
+			zlog.Error().Err(err).Msg("close db")
+		}
+	}()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -162,6 +167,9 @@ func main() {
 
 	// Prune Slack event deduplication records older than 30 days, daily.
 	go store.RunProcessedEventsPruner(ctx, 24*time.Hour, 30*24*time.Hour)
+
+	// Refresh planner statistics where needed (PRAGMA optimize), hourly.
+	go store.RunOptimizer(ctx, time.Hour)
 
 	// Start Redis sync worker (if Redis is available)
 	if redisCache != nil {

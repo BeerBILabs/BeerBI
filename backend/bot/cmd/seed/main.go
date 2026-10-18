@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/BeerBILabs/BeerBI/bot/internal/seed"
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 func main() {
@@ -38,7 +38,7 @@ func main() {
 		log.Fatalf("create directory: %v", err)
 	}
 
-	db, err := sql.Open("sqlite3", *dbPath)
+	db, err := sql.Open("sqlite", *dbPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
 	if err != nil {
 		log.Fatalf("open db: %v", err)
 	}

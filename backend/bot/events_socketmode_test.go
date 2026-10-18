@@ -1,7 +1,6 @@
 package main
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -11,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/rs/zerolog"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
@@ -61,7 +59,7 @@ func (f *fakeSlackAPI) posted() []string {
 func newTestEventProcessor(t *testing.T) (*EventProcessor, *SQLiteStore, *fakeSlackAPI) {
 	t.Helper()
 
-	db, err := sql.Open("sqlite3", filepath.Join(t.TempDir(), "events.db")+"?_foreign_keys=1")
+	db, err := openDB(filepath.Join(t.TempDir(), "events.db"))
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}

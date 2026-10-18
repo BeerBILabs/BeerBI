@@ -52,6 +52,12 @@ Images are built for:
 - `linux/amd64` (Intel/AMD)
 - `linux/arm64` (Apple Silicon/ARM)
 
+The backend is pure Go (`CGO_ENABLED=0`, SQLite via `modernc.org/sqlite`): its builder stage runs on the build platform and cross-compiles for each target, so no QEMU emulation or C toolchain is involved.
+
+### Database files
+
+The backend runs SQLite in WAL mode. Next to `/data/bot.db` you will see `bot.db-wal` and `bot.db-shm`; they belong to the database. Back up the whole `/data` volume with the container stopped, or take an online copy with the `sqlite3` CLI (not included in the image), e.g. `sqlite3 bot.db ".backup backup.db"` in the volume directory. Copying only `bot.db` while the bot runs can miss the latest commits.
+
 ### Tagging Strategy
 
 **Backend:**

@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 func seededDB(t *testing.T, cfg Config) (*sql.DB, Result) {
 	t.Helper()
-	db, err := sql.Open("sqlite3", filepath.Join(t.TempDir(), "seed.db"))
+	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "seed.db"))
 	if err != nil {
 		t.Fatal(err)
 	}

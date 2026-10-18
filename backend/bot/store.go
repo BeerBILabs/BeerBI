@@ -397,6 +397,42 @@ func (s *SQLiteStore) RunProcessedEventsPruner(ctx context.Context, interval, ma
 		zlog.Debug().Int64("deleted", n).Msg("processed_events pruned")
 	}
 	prune()
+	runEvery(ctx, interval, prune)
+}
+
+// Optimize runs PRAGMA optimize: SQLite re-analyzes the tables whose planner
+// statistics are out of date (usually a cheap no-op). SQLite recommends it
+// periodically for long-lived connections and before closing them.
+func (s *SQLiteStore) Optimize() error {
+	if _, err := s.db.Exec(`PRAGMA optimize`); err != nil {
+		return fmt.Errorf("pragma optimize: %w", err)
+	}
+	return nil
+}
+
+// RunOptimizer calls Optimize every interval until ctx is cancelled. Run it in
+// its own goroutine.
+func (s *SQLiteStore) RunOptimizer(ctx context.Context, interval time.Duration) {
+	runEvery(ctx, interval, func() {
+		if err := s.Optimize(); err != nil {
+			zlog.Error().Err(err).Msg("sqlite optimize failed")
+			return
+		}
+		zlog.Debug().Msg("sqlite optimized")
+	})
+}
+
+// Close runs PRAGMA optimize (statistics for the next start) and closes the
+// database.
+func (s *SQLiteStore) Close() error {
+	if err := s.Optimize(); err != nil {
+		zlog.Warn().Err(err).Msg("sqlite optimize on close failed")
+	}
+	return s.db.Close()
+}
+
+// runEvery calls fn every interval until ctx is cancelled.
+func runEvery(ctx context.Context, interval time.Duration, fn func()) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for {
@@ -404,7 +440,7 @@ func (s *SQLiteStore) RunProcessedEventsPruner(ctx context.Context, interval, ma
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			prune()
+			fn()
 		}
 	}
 }

@@ -69,6 +69,12 @@ jobs:
             exit 1
           fi
 
+      - name: Build without CGO
+        # The SQLite driver is pure Go (modernc.org/sqlite); keep the binary CGO-free.
+        run: go build ./...
+        env:
+          CGO_ENABLED: "0"
+
       - name: go vet
         run: go vet ./...
 
@@ -79,7 +85,10 @@ jobs:
           working-directory: backend/bot
 
       - name: Tests (race, coverage)
+        # The race detector is the only part that needs CGO (gcc is preinstalled on the runner).
         run: go test -race -count=1 -coverprofile=cover.out ./...
+        env:
+          CGO_ENABLED: "1"
 
       - name: Coverage threshold
         run: |

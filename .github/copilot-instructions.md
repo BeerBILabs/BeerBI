@@ -8,7 +8,7 @@ Monorepo for BeerBot — a Slack bot that tracks team appreciation through virtu
 
 | Component | Path | Tech Stack |
 |-----------|------|------------|
-| Backend | `backend/bot/` | Go 1.27, SQLite, Slack Socket Mode, zerolog |
+| Backend | `backend/bot/` | Go 1.27, SQLite (`modernc.org/sqlite`, pure Go, WAL), Slack Socket Mode, zerolog |
 | Frontend | `frontend/project/` | Next.js 16 (App Router), React 19, Tailwind 4, Recharts, Bun |
 
 ## Commands
@@ -31,9 +31,9 @@ just status           # Show running services
 just clean            # Remove containers and volumes
 ```
 
-Run backend tests locally (outside Docker):
+Run backend tests locally (outside Docker; the SQLite driver is pure Go, no C toolchain needed):
 ```bash
-cd backend/bot && go test ./...
+cd backend/bot && CGO_ENABLED=0 go test ./...
 ```
 
 ## Architecture
@@ -56,6 +56,7 @@ The frontend never talks to the backend directly from the browser. All requests 
 ### Backend (`backend/bot/`)
 
 Single Go binary with these layers:
+- **db.go** — `openDB()`: SQLite connection settings (WAL, `busy_timeout`, `synchronous=NORMAL`, pool size, `BEGIN IMMEDIATE`)
 - **main.go** — HTTP server setup, Slack Socket Mode connection, route registration, graceful shutdown
 - **events.go** — `EventProcessor`: beer emoji detection, mention parsing (`<@([A-Z0-9]+)>`), daily limit enforcement (default 10/user/day), self-gift prevention
 - **store.go** — SQLite database: schema migrations in `migrate()`, all queries. Tables: `beers`, `processed_events`, `user_cache`, `emoji_counts`
@@ -115,6 +116,9 @@ if !ok { return } // Already processed
 ### Database Migrations
 `store.go` → `migrate()` runs on startup. Schema changes must be additive/non-destructive and added to the migration function. Every step is idempotent: create/upgrade tables (a legacy `beers` table without `UNIQUE` is rebuilt in one transaction), drop obsolete indexes, run versioned data steps gated by `PRAGMA user_version` (v1: normalise `beers.ts_rfc` to RFC3339 UTC, logs `rows_changed`), create the indexes listed in `storeIndexes`, then `ANALYZE` if indexes were created or statistics are missing.
 
+### SQLite Connection
+Always open the database with `openDB()` (`db.go`), also in tests (`openTestDB`/`newTestStore`). It sets WAL, `busy_timeout=5000`, `synchronous=NORMAL`, a 16 MB page cache and `_txlock=immediate` on every pool connection and limits the pool to 4 connections. Writers serialise through `BEGIN IMMEDIATE` + `busy_timeout`, readers run in parallel. `PRAGMA optimize` runs hourly and on `store.Close()`. WAL creates `bot.db-wal` and `bot.db-shm` next to the database: back up all three with the bot stopped, or use `sqlite3 bot.db ".backup copy.db"` (see `DOCKER.md`).
+
 ### Date Filters
 All date filters on `beers` are half-open ranges `ts_rfc >= ? AND ts_rfc < ?` built by `dateBounds(start, end)` (inclusive calendar days; the upper bound is the bare date of the day after `end`) or `yearBounds`. Never wrap `ts_rfc` in a function in a `WHERE` clause: it disables the indexes. `store_plan_test.go` fails if a date-bounded query does not `SEARCH` an index. New date-bounded queries go into the query constants in `store.go` and into `planQueries()` in that test.
 
@@ -152,7 +156,8 @@ Components fetch via `/api/proxy/{endpoint}`. The `Leaderboard.tsx` component us
 - Seed a dev database: `just seed` (or `go run ./cmd/seed -db data/bot.db -rows 200000` in `backend/bot`). It only creates the `beers` table; the bot adds indexes on its next start. All user IDs are fake (`U000000` …).
 - Coverage minimums are the env vars `BACKEND_COVERAGE_THRESHOLD` and `FRONTEND_COVERAGE_THRESHOLD` at the top of `ci.yml` (the frontend value is also the default in `vitest.config.ts`). Raise them when tests are added.
 - Do not use `docker compose -f compose.test.yaml up --abort-on-container-exit`: the first service to finish stops the other. Use `just test`.
-- Without `just`: `docker compose -f compose.test.yaml run --build --rm backend-test` and `... frontend-test`. Host Go cannot link CGO (sqlite3) on the maintainer's Mac, so run Go inside Docker.
+- Without `just`: `docker compose -f compose.test.yaml run --build --rm backend-test` and `... frontend-test`.
+- The backend builds without CGO (`modernc.org/sqlite`). Only `go test -race` needs CGO on Linux (the `test` stage of `docker/backend/Dockerfile` installs `build-base` for it); on macOS `CGO_ENABLED=0 go test -race ./...` works with host Go.
 
 ## Guidelines
 

@@ -78,14 +78,14 @@ test-clean: test
 
 # Run backend query benchmarks against a seeded database (size via BEERBI_BENCH_ROWS)
 bench rows="1000000":
-    docker run --rm -e BEERBI_BENCH_ROWS={{rows}} -v "$PWD/backend/bot":/src -w /src golang:1.27-alpine sh -c 'apk add -q build-base && go test -run "^$" -bench . -benchmem ./...'
+    docker run --rm -e CGO_ENABLED=0 -e BEERBI_BENCH_ROWS={{rows}} -v "$PWD/backend/bot":/src -w /src golang:1.27-alpine go test -run "^$" -bench . -benchmem ./...
 
 # Development data
 # ================
 
 # Fill backend/bot/data/bot.db with deterministic synthetic beers (fake user IDs)
 seed rows="200000":
-    docker run --rm -v "$PWD/backend/bot":/src -w /src golang:1.27-alpine sh -c 'apk add -q build-base && go run ./cmd/seed -db data/bot.db -rows {{rows}}'
+    docker run --rm -e CGO_ENABLED=0 -v "$PWD/backend/bot":/src -w /src golang:1.27-alpine go run ./cmd/seed -db data/bot.db -rows {{rows}}
 
 # Cleanup
 # =======
