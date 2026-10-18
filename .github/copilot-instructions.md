@@ -47,12 +47,14 @@ Slack message → Socket Mode → EventProcessor (events.go)
   → hand off to a worker (sharded by giver, `EVENT_WORKERS`)
   → Check daily limit → Store in SQLite (beers table) → Redis → confirmation in Slack
 
-Frontend page → /api/proxy/[...path] (Next.js server-side)
+Frontend page → /api/proxy/[...path] or /api/leaderboard (Next.js server-side)
   → Injects Authorization: Bearer {API_TOKEN}
   → Backend REST handler → SQLite query → JSON response
 ```
 
-The frontend never talks to the backend directly from the browser. All requests route through the Next.js proxy at `app/api/proxy/[...path]/route.ts`, which injects the `API_TOKEN` server-side.
+The frontend never talks to the backend directly from the browser. Requests route through Next.js route handlers, which call `BACKEND_BASE` with the `API_TOKEN` server-side (`lib/server/backend.ts`):
+- `app/api/proxy/[...path]/route.ts` — generic pass-through to `/api/<path>`. It always uses `API_TOKEN` (a browser `Authorization` header is ignored), streams the body and forwards `Cache-Control`, `ETag`, `Last-Modified`, `Expires`, `Vary` and the conditional request headers.
+- `app/api/leaderboard/route.ts` — `GET /api/leaderboard?start=&end=[&prev_start=&prev_end=][&limit=]`: `/stats/top` for a period and, optionally, a comparison period (previous quarter) fetched in parallel, returned as `{ current, previous }` (`previous` is `null` when not requested or failed). Each `Leaderboard` makes exactly one request through it.
 
 ### Backend (`backend/bot/`)
 
@@ -104,7 +106,7 @@ Bundle: the Recharts chart components are loaded with `next/dynamic` (`ssr: fals
 
 ### Theme System
 
-`app/globals.css` defines HSL CSS custom properties for light/dark modes. Beer-themed golden accent (`#d4a84b`). Theme is stored in the `theme` cookie (`light`/`dark`, one year, `SameSite=Lax`). It is written client-side only (`ThemeProvider` on the first visit, `useTheme().setTheme` on toggle; there is no server action) and read by the blocking `ThemeScript` and, for now, server-side in `layout.tsx` to prevent FOUC. All color references should use the CSS variables (e.g., `hsl(var(--primary))`), not hardcoded values.
+`app/globals.css` defines HSL CSS custom properties for light/dark modes. Beer-themed golden accent (`#d4a84b`). Theme is stored in the `theme` cookie (`light`/`dark`, one year, `SameSite=Lax`). It is written client-side only (`ThemeProvider` on the first visit, `useTheme().setTheme` on toggle; there is no server action) and read only by the blocking `ThemeScript` in `layout.tsx` to prevent FOUC. Never read it on the server (`cookies()` in the layout makes every route dynamic); `bun run build` must list `/` and `/analytics` as `○ (Static)`. The Inter font is self-hosted with `next/font/local` from `@fontsource-variable/inter` (no Google Fonts download at build time). All color references should use the CSS variables (e.g., `hsl(var(--primary))`), not hardcoded values.
 
 ## Important Patterns
 
@@ -121,7 +123,7 @@ if !ok { return } // Already processed
 - **Backend:** `UserResolver` (`users.go`) looks up Redis `user:<id>` (7-day TTL), then the `user_cache` SQLite table, then Slack `users.info`. SQLite rows older than 7 days are served and refreshed in the background. Slack calls run on a shared pool of 10 workers, are de-duplicated while in flight and write through to SQLite and Redis; `/api/user(s)` waits at most 8 s, a stats response at most 1 s, and unfinished lookups keep filling the caches. `users.list` warms both caches at start and daily (needs the `users:read` scope). An empty Slack name (deactivated user) never overwrites a cached name; the cached name is rewritten instead so the row is not refreshed on every request. Finished lookups are remembered in memory per ID: unknown or nameless users for 15 min, Slack errors for 1 min, successes for 1 min (covers the gap until the cache writes land). A rate limit whose `Retry-After` exceeds the lookup deadline fails at once instead of sleeping.
 - **Inline names (B6.4):** `/api/stats/top`, `/api/stats/pairs` and `/api/stats/combined` add `real_name`/`profile_image` to each top-user entry and `giver_name`/`giver_image`/`recipient_name`/`recipient_image` to each pair. The fields are omitted when a user cannot be resolved; fall back to `/api/users` for those IDs.
 - **Leaderboard cache:** a Redis range counts as cached only after a full rebuild from SQLite (`leaderboard:ready:<range>`, same `MULTI` as the sorted sets). After a Redis restart the handlers read SQLite until the next sync.
-- **Frontend:** localStorage with 7-day TTL (`lib/userCache.ts`) — reduces API calls, enables offline viewing of previously loaded data
+- **Frontend:** localStorage with 7-day TTL (`lib/userCache.ts`) — reduces API calls, enables offline viewing of previously loaded data. The blob is parsed once into an in-memory `Map`, written back in the background (idle callback, `pagehide`) and capped at 500 users. `userDataManager` shares in-flight lookups per user ID, so concurrent `getUsers` calls never request the same ID twice.
 
 ### Database Migrations
 `store.go` → `migrate()` runs on startup. Schema changes must be additive/non-destructive and added to the migration function. Every step is idempotent: create/upgrade tables (a legacy `beers` table without `UNIQUE` is rebuilt in one transaction), drop obsolete indexes, run versioned data steps gated by `PRAGMA user_version` (v1: normalise `beers.ts_rfc` to RFC3339 UTC, logs `rows_changed`), create the indexes listed in `storeIndexes`, then `ANALYZE` if indexes were created or statistics are missing.
@@ -133,7 +135,9 @@ Always open the database with `openDB()` (`db.go`), also in tests (`openTestDB`/
 All date filters on `beers` are half-open ranges `ts_rfc >= ? AND ts_rfc < ?` built by `dateBounds(start, end)` (inclusive calendar days; the upper bound is the bare date of the day after `end`) or `yearBounds`. Never wrap `ts_rfc` in a function in a `WHERE` clause: it disables the indexes. `store_plan_test.go` fails if a date-bounded query does not `SEARCH` an index. New date-bounded queries go into the query constants in `store.go` and into `planQueries()` in that test.
 
 ### Frontend Data Fetching
-Components fetch via `/api/proxy/{endpoint}`. The `Leaderboard.tsx` component uses a 5-concurrent-worker pattern for parallel user stat requests.
+Components fetch via `/api/proxy/{endpoint}`; `Leaderboard.tsx` uses `/api/leaderboard` (one request per leaderboard, so the first paint of `/` makes two). Requests that depend on changing input go through `useLatestRequest` (`lib/useLatestRequest.ts`): the previous result stays visible (dimmed, `aria-busy`) while the next one loads and superseded requests are aborted; `useAnalyticsData` builds on it, so the analytics charts stay mounted on range changes.
+
+User names: `resolveUsers` (`lib/userNames.ts`) takes names from the stats response when the backend sends them inline and only looks up the remaining IDs through `userDataManager`. Expected optional fields (`lib/statsTypes.ts`): `name` and `avatar` on each `/stats/top` row (and `top_givers`/`top_recipients` of `/stats/combined`), `giverName` and `recipientName` on each `/stats/pairs` row. Without them the frontend falls back to `/api/users?ids=`.
 
 ## Environment Variables
 
@@ -147,7 +151,7 @@ Components fetch via `/api/proxy/{endpoint}`. The `Leaderboard.tsx` component us
 - `EVENT_WORKERS` — workers that process beer messages in parallel (default: `4`, `0` = inline on the event loop)
 
 **Frontend (via compose):**
-- `NEXT_PUBLIC_BACKEND_BASE` — Backend URL (e.g., `http://backend-dev:8080`)
+- `BACKEND_BASE` — Backend URL (e.g., `http://backend-dev:8080`), read at runtime by the Next.js server only
 - `API_TOKEN` — Token for backend API calls (server-side only, no `NEXT_PUBLIC_` prefix)
 
 ## Testing
@@ -160,7 +164,7 @@ Components fetch via `/api/proxy/{endpoint}`. The `Leaderboard.tsx` component us
 | CI | `.github/workflows/ci.yml` | Same checks plus `golangci-lint` and coverage thresholds; runs on push to `main`, pull requests and (via `workflow_call`) before the tag-triggered Docker builds |
 
 - Backend tests use `t.TempDir()` for SQLite files. Test files are `backend/bot/*_test.go`. Lint config: `backend/bot/.golangci.yml`.
-- Frontend tests live next to the code in `__tests__/` folders (`lib/__tests__`, `components/__tests__`) and use Vitest, jsdom and Testing Library. Config: `frontend/project/vitest.config.ts`. `TZ=Europe/Berlin` is forced for every run (`test/global-setup.ts`) so timezone bugs also fail on UTC runners; never format dates with `toISOString()`, use `formatLocalDate` from `lib/dateUtils.ts`.
+- Frontend tests live next to the code in `__tests__/` folders (`lib/__tests__`, `components/__tests__`, `app/api/__tests__`) and use Vitest, jsdom and Testing Library. Route handler tests run in the Node environment (`// @vitest-environment node` at the top of the file) and stub `fetch` and the env (`vi.stubEnv('BACKEND_BASE', …)`). Config: `frontend/project/vitest.config.ts`. `TZ=Europe/Berlin` is forced for every run (`test/global-setup.ts`) so timezone bugs also fail on UTC runners; never format dates with `toISOString()`, use `formatLocalDate` from `lib/dateUtils.ts`.
 - `tsconfig.json` has `"strict": true`; keep it that way (no `any` to silence errors, no `@ts-ignore`).
 - ESLint 10 (flat config `frontend/project/eslint.config.mjs`) runs with `--max-warnings 0`: typescript-eslint recommended, `@next/eslint-plugin-next` core-web-vitals and `eslint-plugin-react-hooks` recommended (rules-of-hooks, exhaustive-deps and the React Compiler rules such as `set-state-in-effect`). Fix findings instead of disabling them; a disable needs a reason (`// TODO(owner): ...`). `eslint-config-next` is deliberately not used.
 - TypeScript runs in two versions, as recommended for TS 7: `bun run typecheck` uses TypeScript 7 (`@typescript/native`, the native `tsc`), while the `typescript` package is aliased to `@typescript/typescript6` because Next's build-time type check and typescript-eslint need the TS 6 JavaScript API. Re-resolving the lockfile needs Bun >= 1.4 (older Bun mis-resolves the nested `npm:` alias). Drop the alias once TS 7.1 ships its API and the tools support it.

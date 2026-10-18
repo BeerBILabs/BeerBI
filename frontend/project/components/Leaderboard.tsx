@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
 import Image from "next/image";
 import { RankChangeIndicator } from "./RankChangeIndicator";
 import { getQuarterDates, getPreviousQuarter } from "@/lib/quarters";
-import { userDataManager } from "@/lib/userCache";
 import { formatLocalDate } from "@/lib/dateUtils";
+import { resolveUsers, topUserRefs } from "@/lib/userNames";
+import { useLatestRequest } from "@/lib/useLatestRequest";
+import type { LeaderboardResponse, TopUserStats } from "@/lib/statsTypes";
 
 interface LeaderboardProps {
   year?: number | null;
@@ -15,10 +16,84 @@ interface LeaderboardProps {
   maxHeight?: string;
 }
 
-type UserStats = {
-  userId: string;
-  count: number;
+type UserStats = TopUserStats;
+
+type LeaderboardData = {
+  givers: UserStats[];
+  recipients: UserStats[];
+  prevGiverRanks: Record<string, number>;
+  prevRecipientRanks: Record<string, number>;
+  names: Record<string, string>;
+  avatars: Record<string, string | null>;
 };
+
+const ALL_TIME_START = "2020-01-01";
+const TOP_LIMIT = 100;
+
+/**
+ * URL of the one request a leaderboard needs: /api/leaderboard returns the ranking of the
+ * period and, in quarter mode with rank changes, of the previous quarter (fetched in parallel
+ * on the server).
+ */
+export function leaderboardUrl({
+  year,
+  quarter,
+  showRankChange,
+  dateRange,
+}: Pick<LeaderboardProps, "year" | "quarter" | "showRankChange" | "dateRange">): string {
+  const params = new URLSearchParams({ limit: String(TOP_LIMIT) });
+  if (dateRange) {
+    params.set("start", dateRange.start);
+    params.set("end", dateRange.end);
+  } else if (year != null && quarter != null) {
+    const { start, end } = getQuarterDates(year, quarter);
+    params.set("start", start);
+    params.set("end", end);
+    if (showRankChange) {
+      const prev = getPreviousQuarter(year, quarter);
+      const prevDates = getQuarterDates(prev.year, prev.quarter);
+      params.set("prev_start", prevDates.start);
+      params.set("prev_end", prevDates.end);
+    }
+  } else {
+    // All-time view: wide date range (the backend requires date params)
+    params.set("start", ALL_TIME_START);
+    params.set("end", formatLocalDate(new Date()));
+  }
+  return `/api/leaderboard?${params}`;
+}
+
+function rankMap(users: readonly UserStats[]): Record<string, number> {
+  return Object.fromEntries(users.map((u, i) => [u.userId, i + 1]));
+}
+
+async function loadLeaderboard(url: string, signal: AbortSignal): Promise<LeaderboardData> {
+  const resp = await fetch(url, { signal });
+  if (!resp.ok) {
+    throw new Error("Failed to fetch top users");
+  }
+  const body: Partial<LeaderboardResponse> = await resp.json();
+  const givers = body.current?.givers ?? [];
+  const recipients = body.current?.recipients ?? [];
+
+  // Names from the stats response when the backend sends them inline, else one batch lookup.
+  const users = await resolveUsers([...topUserRefs(givers), ...topUserRefs(recipients)]);
+  const names: Record<string, string> = {};
+  const avatars: Record<string, string | null> = {};
+  for (const [id, u] of Object.entries(users)) {
+    names[id] = u.name;
+    avatars[id] = u.avatar;
+  }
+
+  return {
+    givers,
+    recipients,
+    prevGiverRanks: rankMap(body.previous?.givers ?? []),
+    prevRecipientRanks: rankMap(body.previous?.recipients ?? []),
+    names,
+    avatars,
+  };
+}
 
 interface LeaderboardColumnProps {
   title: "Givers" | "Recipients";
@@ -192,154 +267,8 @@ export function Leaderboard({
   dateRange = null,
   maxHeight = "660px",
 }: LeaderboardProps) {
-  const [givers, setGivers] = useState<UserStats[]>([]);
-  const [recipients, setRecipients] = useState<UserStats[]>([]);
-  const [prevGiverRanks, setPrevGiverRanks] = useState<Record<string, number>>({});
-  const [prevRecipientRanks, setPrevRecipientRanks] = useState<Record<string, number>>({});
-  const [names, setNames] = useState<Record<string, string>>({});
-  const [avatars, setAvatars] = useState<Record<string, string | null>>({});
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const mounted = useRef(true);
-
-  useEffect(() => {
-    mounted.current = true;
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function fetchData() {
-      setLoading(true);
-      setError(null);
-
-      try {
-        // Calculate date range for current period
-        let dateParams = "";
-        if (dateRange) {
-          // Use provided date range (homepage mode)
-          dateParams = `&start=${dateRange.start}&end=${dateRange.end}`;
-        } else if (year !== null && quarter !== null) {
-          const { start, end } = getQuarterDates(year, quarter);
-          dateParams = `&start=${start}&end=${end}`;
-        } else {
-          // All-time view: use wide date range (backend requires date params)
-          const today = formatLocalDate(new Date());
-          dateParams = `&start=2020-01-01&end=${today}`;
-        }
-
-        // Fetch top users using aggregated endpoint (replaces per-user stats fetching)
-        const params = dateParams.replace(/^&/, "");
-        const topResp = await fetch(`/api/proxy/stats/top?limit=100&${params}`);
-        
-        if (!topResp.ok) {
-          throw new Error("Failed to fetch top users");
-        }
-
-        const topData: {
-          givers: UserStats[];
-          recipients: UserStats[];
-        } = await topResp.json();
-
-        if (cancelled) return;
-
-        const currentGivers = topData.givers || [];
-        const currentRecipients = topData.recipients || [];
-
-        // If showing rank changes, fetch previous quarter data
-        let prevGivers: Record<string, number> = {};
-        let prevRecipients: Record<string, number> = {};
-
-        if (showRankChange && year !== null && quarter !== null) {
-          const prev = getPreviousQuarter(year, quarter);
-          const { start: prevStart, end: prevEnd } = getQuarterDates(prev.year, prev.quarter);
-          const prevParams = `start=${prevStart}&end=${prevEnd}`;
-
-          const prevResp = await fetch(`/api/proxy/stats/top?limit=100&${prevParams}`);
-          
-          if (prevResp.ok) {
-            const prevData: {
-              givers: UserStats[];
-              recipients: UserStats[];
-            } = await prevResp.json();
-
-            if (cancelled) return;
-
-            // Build rank maps (1-indexed)
-            prevGivers = Object.fromEntries(
-              (prevData.givers || []).map((u, i) => [u.userId, i + 1])
-            );
-            prevRecipients = Object.fromEntries(
-              (prevData.recipients || []).map((u, i) => [u.userId, i + 1])
-            );
-          }
-        }
-
-        if (cancelled || !mounted.current) return;
-
-        setGivers(currentGivers);
-        setRecipients(currentRecipients);
-        setPrevGiverRanks(prevGivers);
-        setPrevRecipientRanks(prevRecipients);
-
-        // Fetch user info for all unique users in batch (atomic rendering)
-        const allUserIds = new Set([
-          ...currentGivers.map((u) => u.userId),
-          ...currentRecipients.map((u) => u.userId),
-        ]);
-
-        if (allUserIds.size === 0) {
-          setLoading(false);
-          return;
-        }
-
-        // Batch fetch all user data
-        const userInfos = await userDataManager.getUsers(Array.from(allUserIds));
-
-        if (cancelled || !mounted.current) return;
-
-        // Convert to names and avatars maps
-        const namesOut: Record<string, string> = {};
-        const avatarsOut: Record<string, string | null> = {};
-
-        for (const [userId, info] of Object.entries(userInfos)) {
-          namesOut[userId] = info.real_name;
-          avatarsOut[userId] = info.profile_image;
-        }
-
-        // Fill in any missing users with userId as fallback
-        for (const userId of allUserIds) {
-          if (!namesOut[userId]) {
-            namesOut[userId] = userId;
-            avatarsOut[userId] = null;
-          }
-        }
-
-        if (cancelled || !mounted.current) return;
-
-        setNames(namesOut);
-        setAvatars(avatarsOut);
-        setLoading(false);
-      } catch (err) {
-        if (cancelled || !mounted.current) return;
-        setError(err instanceof Error ? err.message : "An error occurred");
-        setLoading(false);
-      }
-    }
-
-    fetchData();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [year, quarter, showRankChange, dateRange]);
-
-  if (loading) {
-    return <LoadingSkeleton />;
-  }
+  const url = leaderboardUrl({ year, quarter, showRankChange, dateRange });
+  const { data, isFetching, error } = useLatestRequest(url, loadLeaderboard);
 
   if (error) {
     return (
@@ -367,6 +296,13 @@ export function Leaderboard({
     );
   }
 
+  if (!data) {
+    return <LoadingSkeleton />;
+  }
+
+  // While another range loads, the previous ranking stays visible (dimmed) instead of a skeleton.
+  const { givers, recipients, prevGiverRanks, prevRecipientRanks, names, avatars } = data;
+
   if (givers.length === 0 && recipients.length === 0) {
     return (
       <div
@@ -384,7 +320,11 @@ export function Leaderboard({
   }
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-8 p-2">
+    <div
+      className="grid grid-cols-1 md:grid-cols-2 gap-8 p-2 transition-opacity"
+      style={{ opacity: isFetching ? 0.6 : 1 }}
+      aria-busy={isFetching}
+    >
       <LeaderboardColumn
         title="Givers"
         users={givers}

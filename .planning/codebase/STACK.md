@@ -106,7 +106,7 @@
 ## Environment Variables
 
 **Frontend (Next.js):**
-- `NEXT_PUBLIC_BACKEND_BASE` - Backend API base URL (default: `http://localhost:8080`)
+- `BACKEND_BASE` - Backend API base URL (default: `http://localhost:8080`)
 - `API_TOKEN` - API authentication token (default: `my-secret-token`) - **exposed to frontend**
 
 **Backend (Go):**

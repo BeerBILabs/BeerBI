@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server'
+import { backendBase } from '@/lib/server/backend'
 
 export async function GET(): Promise<NextResponse> {
-  const backend = process.env.NEXT_PUBLIC_BACKEND_BASE || 'http://localhost:8080'
+  const backend = backendBase()
   try {
-    const resp = await fetch(`${backend}/healthz`, { method: 'GET' })
+    const resp = await fetch(`${backend}/healthz`, { method: 'GET', cache: 'no-store' })
     if (!resp.ok) {
       return NextResponse.json({ status: 'unhealthy', backend: resp.status }, { status: 502 })
     }

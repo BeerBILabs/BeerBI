@@ -94,7 +94,7 @@
 - Frontend: `/api/proxy/recipients` -> Backend: `http://localhost:8080/api/recipients`
 
 **Backend URL Configuration:**
-- Env var: `NEXT_PUBLIC_BACKEND_BASE` (frontend-side config)
+- Env var: `BACKEND_BASE` (Next.js server-side config, read at runtime)
 - Default: `http://localhost:8080`
 - Can point to external backend for production deployments
 
@@ -175,7 +175,7 @@
 - None - all have safe defaults
 
 **Optional env vars for Frontend:**
-- `NEXT_PUBLIC_BACKEND_BASE` - Backend URL (default: `http://localhost:8080`)
+- `BACKEND_BASE` - Backend URL (default: `http://localhost:8080`)
 - `API_TOKEN` - Backend API token for proxy fallback
 
 **Secrets location:**

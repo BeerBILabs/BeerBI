@@ -1,23 +1,13 @@
-import { useState, useEffect } from "react";
+import { useLatestRequest } from "./useLatestRequest";
+import type { PairStats, TopUserStats } from "./statsTypes";
 
 type TimelinePoint = {
   date: string;
   count: number; // beers given in the period
 };
 
-type TopUserStats = {
-  userId: string; // Backend uses camelCase
-  count: number;
-};
-
 type HeatmapPoint = {
   date: string;
-  count: number;
-};
-
-type PairStats = {
-  giver: string;
-  recipient: string;
   count: number;
 };
 
@@ -38,6 +28,28 @@ type UseAnalyticsDataOptions = {
   enabled?: boolean;
 };
 
+/** Result of one /stats/combined request together with the range it was requested for. */
+type LoadedAnalytics = { data: AnalyticsData; start: string; end: string };
+
+const COMBINED_PATH = "/api/proxy/stats/combined";
+
+async function loadAnalytics(url: string, signal: AbortSignal): Promise<LoadedAnalytics> {
+  const resp = await fetch(url, { signal });
+  if (!resp.ok) {
+    throw new Error(`Failed to fetch analytics data: ${resp.statusText}`);
+  }
+  const data = (await resp.json()) as AnalyticsData;
+  const params = new URL(url, "http://localhost").searchParams;
+  return { data, start: params.get("start") ?? "", end: params.get("end") ?? "" };
+}
+
+/**
+ * All analytics data of a range in one request (/stats/combined).
+ *
+ * While a new range loads, the previous `data` (and its `dataRange`) stays available so the
+ * charts stay mounted (audit F6); `isFetching` tells that a newer request is running. A
+ * superseded request is aborted.
+ */
 export function useAnalyticsData({
   startDate,
   endDate,
@@ -46,60 +58,23 @@ export function useAnalyticsData({
   pairsLimit = 15,
   enabled = true,
 }: UseAnalyticsDataOptions) {
-  const [data, setData] = useState<AnalyticsData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const params = new URLSearchParams({
+    start: startDate,
+    end: endDate,
+    granularity,
+    limit: limit.toString(),
+    pairs_limit: pairsLimit.toString(),
+  });
+  const key = enabled ? `${COMBINED_PATH}?${params}` : null;
+  const { data: loaded, isFetching, error } = useLatestRequest(key, loadAnalytics);
 
-  useEffect(() => {
-    if (!enabled) {
-      // TODO(WS-D): derive `loading` from `enabled` when this hook is reworked (F6: separate data and isFetching)
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-
-    async function fetchData() {
-      try {
-        setLoading(true);
-        setError(null);
-
-        const params = new URLSearchParams({
-          start: startDate,
-          end: endDate,
-          granularity,
-          limit: limit.toString(),
-          pairs_limit: pairsLimit.toString(),
-        });
-
-        const resp = await fetch(`/api/proxy/stats/combined?${params}`);
-        if (!resp.ok) {
-          throw new Error(`Failed to fetch analytics data: ${resp.statusText}`);
-        }
-
-        const result = await resp.json();
-        if (!cancelled) {
-          setData(result);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          console.error("Analytics data fetch error:", err);
-          setError(err instanceof Error ? err.message : "Unknown error");
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
-    }
-
-    fetchData();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [startDate, endDate, granularity, limit, pairsLimit, enabled]);
-
-  return { data, loading, error };
+  return {
+    data: loaded?.data ?? null,
+    /** The range `data` belongs to (lags behind the requested range while fetching). */
+    dataRange: loaded ? { start: loaded.start, end: loaded.end } : null,
+    isFetching,
+    /** True only before the first result: nothing to show yet. */
+    loading: isFetching && loaded === null,
+    error,
+  };
 }

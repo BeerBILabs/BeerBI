@@ -29,7 +29,7 @@ services:
       - "3000:3000"
     environment:
       - HOSTNAME=0.0.0.0
-      - NEXT_PUBLIC_BACKEND_BASE=http://backend-dev:8080
+      - BACKEND_BASE=http://backend-dev:8080
       - API_TOKEN=my-secret-token
     volumes:
       - ./frontend/project:/app/beerbot

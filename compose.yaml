@@ -41,7 +41,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      - NEXT_PUBLIC_BACKEND_BASE=http://backend:8080
+      - BACKEND_BASE=http://backend:8080
       - API_TOKEN=my-secret-token
     depends_on:
       backend:

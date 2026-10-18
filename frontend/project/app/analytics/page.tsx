@@ -70,8 +70,9 @@ export default function AnalyticsPage() {
     ]);
   }, []);
 
-  // Fetch all analytics data with a single request
-  const { data: analyticsData, loading, error } = useAnalyticsData({
+  // Fetch all analytics data with a single request. While a new range loads, the previous data
+  // stays on screen (charts stay mounted) and `isFetching` drives an inline indicator.
+  const { data: analyticsData, dataRange, isFetching, loading, error } = useAnalyticsData({
     startDate: range.start,
     endDate: range.end,
     granularity: "day",
@@ -176,7 +177,17 @@ export default function AnalyticsPage() {
         </div>
 
         {/* Charts Grid */}
-        <div className="space-y-6">
+        <div className="space-y-6" aria-busy={isFetching}>
+          {isFetching && analyticsData && (
+            <p
+              role="status"
+              className="text-sm text-center animate-pulse"
+              style={{ color: "hsl(var(--muted-foreground))" }}
+            >
+              Updating…
+            </p>
+          )}
+
           {loading && (
             <div className="text-center py-12">
               <p style={{ color: "hsl(var(--muted-foreground))" }}>
@@ -198,27 +209,30 @@ export default function AnalyticsPage() {
             </div>
           )}
 
-          {analyticsData && (
-            <>
+          {analyticsData && dataRange && (
+            <div
+              className="space-y-6 transition-opacity"
+              style={{ opacity: isFetching ? 0.6 : 1 }}
+            >
               {/* Activity Timeline - Full Width */}
               <ActivityChart
-                startDate={range.start}
-                endDate={range.end}
+                startDate={dataRange.start}
+                endDate={dataRange.end}
                 preloadedData={analyticsData.timeline}
               />
 
               {/* Top Givers & Recipients - Side by Side */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <TopGiversChart
-                  startDate={range.start}
-                  endDate={range.end}
+                  startDate={dataRange.start}
+                  endDate={dataRange.end}
                   type="givers"
                   limit={10}
                   preloadedData={analyticsData.top_givers}
                 />
                 <TopRecipientsChart
-                  startDate={range.start}
-                  endDate={range.end}
+                  startDate={dataRange.start}
+                  endDate={dataRange.end}
                   type="recipients"
                   limit={10}
                   preloadedData={analyticsData.top_recipients}
@@ -228,13 +242,13 @@ export default function AnalyticsPage() {
               {/* Heatmap & Network Chart - Side by Side */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                 <ActivityHeatmap
-                  startDate={range.start}
-                  endDate={range.end}
+                  startDate={dataRange.start}
+                  endDate={dataRange.end}
                   preloadedData={analyticsData.heatmap}
                 />
                 <NetworkChart
-                  startDate={range.start}
-                  endDate={range.end}
+                  startDate={dataRange.start}
+                  endDate={dataRange.end}
                   limit={15}
                   preloadedData={analyticsData.pairs}
                 />
@@ -242,7 +256,7 @@ export default function AnalyticsPage() {
 
               {/* Quarterly Comparison - Full Width */}
               <QuarterlyChart />
-            </>
+            </div>
           )}
         </div>
       </div>

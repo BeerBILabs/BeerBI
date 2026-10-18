@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 set -e
-BACKEND=${NEXT_PUBLIC_BACKEND_BASE:-http://localhost:8080}
+BACKEND=${BACKEND_BASE:-http://localhost:8080}
 TIMEOUT=${WAIT_TIMEOUT:-30}
 INTERVAL=1
 

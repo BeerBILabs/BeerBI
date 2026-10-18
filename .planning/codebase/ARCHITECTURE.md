@@ -26,7 +26,7 @@
 - Purpose: Bridge frontend to backend via proxy server, inject authentication token server-side
 - Location: `frontend/project/app/api/proxy/[...path]/route.ts`, `frontend/project/app/api/health/route.ts`
 - Contains: Next.js API routes, token injection middleware, request forwarding logic
-- Depends on: `process.env.API_TOKEN`, `process.env.NEXT_PUBLIC_BACKEND_BASE`
+- Depends on: `process.env.API_TOKEN`, `process.env.BACKEND_BASE`
 - Used by: Frontend client components via `/api/proxy/*` endpoints
 
 **Backend Slack Event Layer:**

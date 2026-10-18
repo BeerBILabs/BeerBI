@@ -188,8 +188,8 @@
   - Required: `BOT_TOKEN`, `APP_TOKEN`, `CHANNEL`
   - Optional: `DB_PATH`, `API_TOKEN`, `ADDR`, `MAX_PER_DAY`, `EMOJI`
 
-- **Frontend:** Next.js env vars must be prefixed `NEXT_PUBLIC_` to be available client-side
-  - `NEXT_PUBLIC_BACKEND_BASE`: Backend URL (default: `http://localhost:8080`)
+- **Frontend:** server-side only, read at runtime by the route handlers (no `NEXT_PUBLIC_` prefix, nothing reaches the browser bundle)
+  - `BACKEND_BASE`: Backend URL (default: `http://localhost:8080`)
   - `API_TOKEN`: Injected server-side in proxy route (never exposed to browser)
 
 ---

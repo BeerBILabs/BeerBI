@@ -15,7 +15,7 @@ function readThemeCookie(): string | undefined {
 }
 
 // Client-side only: no server action, so there is no extra POST on the first visit.
-// Name and format are what app/layout.tsx and its blocking ThemeScript read.
+// Name and format are what the blocking ThemeScript in app/layout.tsx reads.
 function writeThemeCookie(theme: Theme) {
   document.cookie = `${THEME_COOKIE}=${theme}; path=/; max-age=${ONE_YEAR_SECONDS}; SameSite=Lax`
 }
