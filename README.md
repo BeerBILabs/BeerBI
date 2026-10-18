@@ -85,15 +85,15 @@ See the `justfile` for a complete list of available commands.
 
 ## Quick Start
 
-### Using Docker Hub Images
+### With Docker Compose
 
-See [compose.yaml](compose.yaml).
+Create a `.env` next to [compose.yaml](compose.yaml) with `BOT_TOKEN`, `APP_TOKEN`, `CHANNEL` and `API_TOKEN` (see [backend/README.md](./backend/README.md#environment-variables)), then:
 
 ```bash
-docker compose up -d
+docker compose up -d --build
 ```
 
-Open <http://localhost:3000> to view the dashboard.
+Open <http://localhost:3000> to view the dashboard. `compose.yaml` builds the images from source; [DOCKER.md](DOCKER.md) shows how to use the published Docker Hub images (`beerbilabs/beerbi-backend`, `beerbilabs/beerbi-frontend`) and how to back up the database before an upgrade.
 
 ### Slack Setup
 
@@ -126,6 +126,7 @@ The frontend displays:
 
 - **Backend**: See [backend/README.md](./backend/README.md) for API documentation, configuration options, and deployment details
 - **Frontend**: See [frontend/README.md](./frontend/README.md) for UI features, customization, and build instructions
+- **Docker**: See [DOCKER.md](./DOCKER.md) for images, tags, backups, upgrades and graceful shutdown
 
 ## License
 
