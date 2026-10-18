@@ -154,22 +154,22 @@ func TestGetTimelineStats(t *testing.T) {
 		want        []TimelinePoint
 	}{
 		{"day", "2024-02-28", "2024-03-01", []TimelinePoint{
-			{Date: "2024-02-28", Given: 1, Received: 1},
-			{Date: "2024-02-29", Given: 4, Received: 4},
-			{Date: "2024-03-01", Given: 2, Received: 2},
+			{Date: "2024-02-28", Count: 1},
+			{Date: "2024-02-29", Count: 4},
+			{Date: "2024-03-01", Count: 2},
 		}},
-		{"day", "2024-02-29", "2024-02-29", []TimelinePoint{{Date: "2024-02-29", Given: 4, Received: 4}}},
+		{"day", "2024-02-29", "2024-02-29", []TimelinePoint{{Date: "2024-02-29", Count: 4}}},
 		{"week", "2023-12-31", "2024-01-07", []TimelinePoint{
-			{Date: "2023-W52", Given: 1, Received: 1},
-			{Date: "2024-W01", Given: 2, Received: 2},
+			{Date: "2023-W52", Count: 1},
+			{Date: "2024-W01", Count: 2},
 		}},
 		{"month", "2023-12-01", "2024-12-31", []TimelinePoint{
-			{Date: "2023-12", Given: 1, Received: 1},
-			{Date: "2024-01", Given: 2, Received: 2},
-			{Date: "2024-02", Given: 5, Received: 5},
-			{Date: "2024-03", Given: 2, Received: 2},
-			{Date: "2024-04", Given: 1, Received: 1},
-			{Date: "2024-12", Given: 5, Received: 5},
+			{Date: "2023-12", Count: 1},
+			{Date: "2024-01", Count: 2},
+			{Date: "2024-02", Count: 5},
+			{Date: "2024-03", Count: 2},
+			{Date: "2024-04", Count: 1},
+			{Date: "2024-12", Count: 5},
 		}},
 		{"day", "2025-01-01", "2025-12-31", nil},
 	}

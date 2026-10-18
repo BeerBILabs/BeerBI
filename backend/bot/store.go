@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -408,6 +409,26 @@ func (s *SQLiteStore) PruneProcessedEvents(cutoff time.Time) (int64, error) {
 	return res.RowsAffected()
 }
 
+// DefaultProcessedEventsRetentionDays is how long processed_events records are
+// kept when PROCESSED_EVENTS_RETENTION_DAYS is not set.
+const DefaultProcessedEventsRetentionDays = 30
+
+// ParseRetentionDays parses a processed_events retention in whole days (the
+// value of PROCESSED_EVENTS_RETENTION_DAYS). Empty means the default; anything
+// else must be an integer >= 1, because a shorter window than Slack's
+// redelivery would break deduplication.
+func ParseRetentionDays(v string) (int, error) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return DefaultProcessedEventsRetentionDays, nil
+	}
+	days, err := strconv.Atoi(v)
+	if err != nil || days < 1 {
+		return 0, fmt.Errorf("processed_events retention must be a whole number of days >= 1, got %q", v)
+	}
+	return days, nil
+}
+
 // RunProcessedEventsPruner prunes processed_events records older than maxAge
 // right away and then every interval, until ctx is cancelled. Run it in its
 // own goroutine; it returns when ctx is done.
@@ -641,11 +662,12 @@ func (s *SQLiteStore) SetCachedUser(userID, realName, profileImage string) error
 // scanning the table (guarded by store_plan_test.go).
 // ============================================================================
 
-// TimelinePoint represents a single data point in a timeline chart
+// TimelinePoint is one period of the activity timeline: the number of beers
+// given in it. Every beer is given and received at once, so there is only one
+// series (the former given/received pair was always identical).
 type TimelinePoint struct {
-	Date     string `json:"date"`
-	Given    int    `json:"given"`
-	Received int    `json:"received"`
+	Date  string `json:"date"`
+	Count int    `json:"count"`
 }
 
 // Date-bounded queries on beers. They are package-level so store_plan_test.go
@@ -705,11 +727,8 @@ func timelinePeriod(granularity string) string {
 	}
 }
 
-// GetTimelineStats returns aggregated beer counts grouped by date within a range.
-// Granularity can be "day", "week", or "month".
-//
-// Every beer is both given and received, so Given and Received are the same
-// total (one pass over the index).
+// GetTimelineStats returns the beer count per day, week or month (granularity)
+// within the inclusive date range, in one pass over the covering index.
 func (s *SQLiteStore) GetTimelineStats(start, end time.Time, granularity string) ([]TimelinePoint, error) {
 	lo, hi := dateBounds(start, end)
 	rows, err := s.db.Query(timelineQuery(granularity), lo, hi)
@@ -721,10 +740,9 @@ func (s *SQLiteStore) GetTimelineStats(start, end time.Time, granularity string)
 	var results []TimelinePoint
 	for rows.Next() {
 		var p TimelinePoint
-		if err := rows.Scan(&p.Date, &p.Given); err != nil {
+		if err := rows.Scan(&p.Date, &p.Count); err != nil {
 			return nil, fmt.Errorf("timeline scan: %w", err)
 		}
-		p.Received = p.Given
 		results = append(results, p)
 	}
 	return results, rows.Err()
