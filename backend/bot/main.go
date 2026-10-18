@@ -170,6 +170,10 @@ func main() {
 		go redisCache.StartSyncWorker(ctx, store, 5*time.Minute)
 	}
 
+	// Preload user names from users.list now and daily, so /api/users and the
+	// inline names in the stats responses rarely need a users.info call.
+	go handlers.users.RunWarmup(ctx, 24*time.Hour)
+
 	// Connection health monitor
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)

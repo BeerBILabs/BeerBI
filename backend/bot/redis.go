@@ -99,12 +99,17 @@ func NewRedisUserCache(addr string, logger zerolog.Logger) (*RedisUserCache, err
 
 	logger.Info().Str("addr", addr).Msg("redis connection established")
 
+	return newRedisUserCacheWithClient(client, logger), nil
+}
+
+// newRedisUserCacheWithClient wraps an existing client (tests pass a miniredis client).
+func newRedisUserCacheWithClient(client *redis.Client, logger zerolog.Logger) *RedisUserCache {
 	return &RedisUserCache{
 		client:         client,
 		logger:         logger,
 		ttl:            7 * 24 * time.Hour, // 7 days to match frontend cache
 		circuitBreaker: NewCircuitBreaker(3, 10*time.Minute),
-	}, nil
+	}
 }
 
 // GetUser retrieves user data from Redis cache
@@ -314,62 +319,60 @@ func (r *RedisUserCache) incrementStats(ctx context.Context, kind, userID string
 	return nil
 }
 
-// GetTopGivers retrieves top givers from Redis cache for a specific range
-func (r *RedisUserCache) GetTopGivers(ctx context.Context, rangeKey string, limit int) ([]TopUserStats, error) {
-	if r.circuitBreaker.IsOpen() {
-		r.logger.Debug().Msg("circuit breaker open, skipping redis read")
-		return nil, fmt.Errorf("circuit breaker open")
-	}
-
-	key := fmt.Sprintf("leaderboard:givers:%s", rangeKey)
-
-	// ZREVRANGE with scores (highest first)
-	results, err := r.client.ZRevRangeWithScores(ctx, key, 0, int64(limit-1)).Result()
-	if err == redis.Nil {
-		return nil, nil // Cache miss
-	}
-	if err != nil {
-		r.circuitBreaker.RecordFailure()
-		return nil, err
-	}
-
-	r.circuitBreaker.RecordSuccess()
-
-	stats := make([]TopUserStats, 0, len(results))
-	for _, z := range results {
-		stats = append(stats, TopUserStats{
-			UserID: z.Member.(string),
-			Count:  int(z.Score),
-		})
-	}
-
-	return stats, nil
+// leaderboardKey is the sorted set holding one leaderboard ("givers" or "recipients") of a range.
+func leaderboardKey(kind, rangeKey string) string {
+	return fmt.Sprintf("leaderboard:%s:%s", kind, rangeKey)
 }
 
-// GetTopRecipients retrieves top recipients from Redis cache for a specific range
+// leaderboardReadyKey marks a range as fully populated from SQLite. It is written
+// in the same transaction as the sorted sets. Without it (fresh or restarted Redis)
+// a sorted set may be missing or hold only the increments since the restart, so
+// readers must treat the range as a cache miss (audit C2).
+func leaderboardReadyKey(rangeKey string) string {
+	return fmt.Sprintf("leaderboard:ready:%s", rangeKey)
+}
+
+// GetTopGivers retrieves top givers from Redis cache for a specific range.
+// A nil slice with a nil error is a cache miss; a non-nil (possibly empty) slice is a hit.
+func (r *RedisUserCache) GetTopGivers(ctx context.Context, rangeKey string, limit int) ([]TopUserStats, error) {
+	return r.getLeaderboard(ctx, "givers", rangeKey, limit)
+}
+
+// GetTopRecipients retrieves top recipients from Redis cache for a specific range.
+// A nil slice with a nil error is a cache miss; a non-nil (possibly empty) slice is a hit.
 func (r *RedisUserCache) GetTopRecipients(ctx context.Context, rangeKey string, limit int) ([]TopUserStats, error) {
+	return r.getLeaderboard(ctx, "recipients", rangeKey, limit)
+}
+
+func (r *RedisUserCache) getLeaderboard(ctx context.Context, kind, rangeKey string, limit int) ([]TopUserStats, error) {
 	if r.circuitBreaker.IsOpen() {
 		r.logger.Debug().Msg("circuit breaker open, skipping redis read")
 		return nil, fmt.Errorf("circuit breaker open")
 	}
 
-	key := fmt.Sprintf("leaderboard:recipients:%s", rangeKey)
-
-	results, err := r.client.ZRevRangeWithScores(ctx, key, 0, int64(limit-1)).Result()
-	if err == redis.Nil {
-		return nil, nil
-	}
-	if err != nil {
+	pipe := r.client.Pipeline()
+	ready := pipe.Exists(ctx, leaderboardReadyKey(rangeKey))
+	// ZREVRANGE with scores (highest first)
+	members := pipe.ZRevRangeWithScores(ctx, leaderboardKey(kind, rangeKey), 0, int64(limit-1))
+	if _, err := pipe.Exec(ctx); err != nil && err != redis.Nil {
 		r.circuitBreaker.RecordFailure()
 		return nil, err
 	}
-
 	r.circuitBreaker.RecordSuccess()
 
+	if ready.Val() == 0 {
+		return nil, nil // not populated since the last Redis start: cache miss
+	}
+
+	results := members.Val()
 	stats := make([]TopUserStats, 0, len(results))
 	for _, z := range results {
+		member, ok := z.Member.(string)
+		if !ok {
+			continue
+		}
 		stats = append(stats, TopUserStats{
-			UserID: z.Member.(string),
+			UserID: member,
 			Count:  int(z.Score),
 		})
 	}
@@ -499,14 +502,14 @@ func (r *RedisUserCache) populateRange(ctx context.Context, store *SQLiteStore, 
 		return fmt.Errorf("failed to get top users: %w", err)
 	}
 
-	// Clear existing data for this range
-	pipe := r.client.Pipeline()
-	pipe.Del(ctx, fmt.Sprintf("leaderboard:givers:%s", rangeKey))
-	pipe.Del(ctx, fmt.Sprintf("leaderboard:recipients:%s", rangeKey))
+	// Rebuild the range in one MULTI/EXEC so readers never see a cleared or half-filled set.
+	pipe := r.client.TxPipeline()
+	pipe.Del(ctx, leaderboardKey("givers", rangeKey))
+	pipe.Del(ctx, leaderboardKey("recipients", rangeKey))
 
 	// Populate givers
 	for _, giver := range topUsers.Givers {
-		pipe.ZAdd(ctx, fmt.Sprintf("leaderboard:givers:%s", rangeKey), redis.Z{
+		pipe.ZAdd(ctx, leaderboardKey("givers", rangeKey), redis.Z{
 			Score:  float64(giver.Count),
 			Member: giver.UserID,
 		})
@@ -514,11 +517,14 @@ func (r *RedisUserCache) populateRange(ctx context.Context, store *SQLiteStore, 
 
 	// Populate recipients
 	for _, recipient := range topUsers.Recipients {
-		pipe.ZAdd(ctx, fmt.Sprintf("leaderboard:recipients:%s", rangeKey), redis.Z{
+		pipe.ZAdd(ctx, leaderboardKey("recipients", rangeKey), redis.Z{
 			Score:  float64(recipient.Count),
 			Member: recipient.UserID,
 		})
 	}
+
+	// Mark the range as populated (also when it is empty, which is a valid result).
+	pipe.Set(ctx, leaderboardReadyKey(rangeKey), "1", 0)
 
 	if _, err := pipe.Exec(ctx); err != nil {
 		r.circuitBreaker.RecordFailure()
