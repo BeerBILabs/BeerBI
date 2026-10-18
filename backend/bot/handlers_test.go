@@ -315,6 +315,31 @@ func TestCombinedAnalyticsHandler(t *testing.T) {
 	}
 }
 
+func TestCombinedAnalyticsHandler_CacheTTLFollowsNewestSeries(t *testing.T) {
+	h, _ := newStatsTestHandlers(t) // now = 2026-10-18
+	closed := "start=2025-01-01&end=2025-12-31"
+	cases := []struct {
+		query string
+		want  string
+	}{
+		// Closed date range, quarterly defaults to the current year: still moving.
+		{closed, "private, max-age=30"},
+		// Closed date range, quarterly explicitly up to the current year.
+		{closed + "&start_year=2024&end_year=2026", "private, max-age=30"},
+		// Closed date range and closed quarterly years: final.
+		{closed + "&start_year=2024&end_year=2025", "private, max-age=3600"},
+		// Open date range, closed quarterly years: the date range decides.
+		{"start=2026-10-01&end=2026-10-18&start_year=2024&end_year=2025", "private, max-age=30"},
+	}
+	for _, tc := range cases {
+		rec := serve(h.CombinedAnalyticsHandler, "/api/stats/combined?"+tc.query)
+		wantStatus(t, rec, http.StatusOK)
+		if got := rec.Header().Get("Cache-Control"); got != tc.want {
+			t.Errorf("%s: Cache-Control = %q, want %q", tc.query, got, tc.want)
+		}
+	}
+}
+
 func TestHandlersReturn500WhenDatabaseFails(t *testing.T) {
 	h, store := newStatsTestHandlers(t)
 	if err := store.db.Close(); err != nil {

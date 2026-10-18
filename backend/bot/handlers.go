@@ -666,7 +666,9 @@ func (h *APIHandlers) CombinedAnalyticsHandler(w http.ResponseWriter, r *http.Re
 		Int("quarters", len(response.Quarterly)).
 		Msg("request completed")
 
-	h.respondJSON(w, r, "combined_analytics", response, h.rangeCacheTTL(end))
+	// The response is as fresh as its newest series: the quarterly series covers whole years
+	// (by default up to the current one), so a closed date range alone does not make it final.
+	h.respondJSON(w, r, "combined_analytics", response, min(h.rangeCacheTTL(end), h.yearCacheTTL(endYear)))
 }
 
 // topUsers returns the top givers and recipients for a range: from Redis for the common

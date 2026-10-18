@@ -84,7 +84,7 @@ Single Go binary with these layers:
 
 `/api/givers` and `/api/recipients` (unauthenticated, unbounded lists) were removed; use `/api/stats/top` instead. Without a configured `API_TOKEN` every authenticated endpoint answers 401.
 
-Stats responses carry an `ETag` and `Cache-Control: private, max-age=3600` when the range ended before today (UTC) and `max-age=30` otherwise; a matching `If-None-Match` gets `304`. The Next.js proxy has to forward these headers. The HTTP server sets `ReadHeaderTimeout` 5 s, `ReadTimeout` 15 s, `WriteTimeout` 30 s, `IdleTimeout` 120 s and a 64 KiB header limit (`main.go`).
+Stats responses carry an `ETag` and `Cache-Control: private, max-age=3600` when the range ended before today (UTC) and `max-age=30` otherwise (`/api/stats/combined` also needs its quarterly years `end_year` to be over, default is the current year); a matching `If-None-Match` gets `304`. The Next.js proxy has to forward these headers. The HTTP server sets `ReadHeaderTimeout` 5 s, `ReadTimeout` 15 s, `WriteTimeout` 30 s, `IdleTimeout` 120 s and a 64 KiB header limit (`main.go`).
 
 ### Frontend (`frontend/project/`)
 

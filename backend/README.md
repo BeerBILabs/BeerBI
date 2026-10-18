@@ -31,7 +31,7 @@ All endpoints require Bearer token authentication.
 - `GET /api/stats/combined?start={date}&end={date}` (timeline, top users, heatmap, pairs and quarterly series in one response)
 - `GET /api/stats/timeline`, `/api/stats/quarterly`, `/api/stats/top`, `/api/stats/heatmap`, `/api/stats/pairs`
 
-Responses carry `ETag` and `Cache-Control` (1 hour for ranges that ended before today, 30 s otherwise).
+Responses carry `ETag` and `Cache-Control` (1 hour for ranges that ended before today, 30 s otherwise; the combined response counts as current while its quarterly series includes the current year).
 
 ### Health
 
