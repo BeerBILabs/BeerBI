@@ -15,9 +15,10 @@ permissions:
   contents: read
 
 env:
-  # Minimum statement coverage (%) for the backend package and line coverage (%) for the frontend.
+  # Minimum statement coverage (%) of the backend `bot` package (the seed helpers are excluded)
+  # and line coverage (%) for the frontend.
   # Set to the current level; raise them as tests are added.
-  BACKEND_COVERAGE_THRESHOLD: 30
+  BACKEND_COVERAGE_THRESHOLD: 28
   FRONTEND_COVERAGE_THRESHOLD: 33
 
 jobs:
@@ -92,10 +93,15 @@ jobs:
 
       - name: Coverage threshold
         run: |
-          total="$(go tool cover -func=cover.out | awk '/^total:/ {gsub("%","",$3); print $3}')"
-          echo "Backend coverage: ${total}% (minimum ${BACKEND_COVERAGE_THRESHOLD}%)"
+          # Only the bot package counts; internal/seed and cmd/seed are test tooling.
+          grep -v -E '/(internal|cmd)/seed/' cover.out > cover-bot.out
+          total="$(go tool cover -func=cover-bot.out | awk '/^total:/ {gsub("%","",$3); print $3}')"
+          echo "Backend coverage (bot package): ${total}% (minimum ${BACKEND_COVERAGE_THRESHOLD}%)"
           awk -v t="$total" -v m="$BACKEND_COVERAGE_THRESHOLD" 'BEGIN { exit !(t+0 >= m+0) }' \
             || { echo "::error::Backend coverage ${total}% is below ${BACKEND_COVERAGE_THRESHOLD}%"; exit 1; }
+
+      - name: Benchmarks (smoke, one iteration on a small seed)
+        run: go test -run '^$' -bench . -benchtime 1x -short ./...
 
   frontend:
     name: Frontend (Next.js)

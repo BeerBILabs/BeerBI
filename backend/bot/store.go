@@ -17,6 +17,11 @@ const dateLayout = "2006-01-02"
 // beers.ts_rfc values to RFC3339 UTC (see normalizeTimestamps).
 const schemaVersion = 1
 
+// legacyFallbackTs is stored by the legacy rebuild for rows that have neither
+// a ts_rfc nor a numeric Slack ts (ts_rfc is NOT NULL, and dropping the beer
+// would lose data). Such rows are counted and logged.
+const legacyFallbackTs = "1970-01-01T00:00:00Z"
+
 // rfc3339UTCGlob matches the canonical ts_rfc format written by AddBeer.
 const rfc3339UTCGlob = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]Z"
 
@@ -62,6 +67,11 @@ type SQLiteStore struct {
 func NewSQLiteStore(db *sql.DB) (*SQLiteStore, error) {
 	s := &SQLiteStore{db: db}
 	if err := s.migrate(); err != nil {
+		return nil, err
+	}
+	// Refresh statistics that went stale while the bot was down or since the
+	// first ANALYZE on a then-small table (see Optimize).
+	if err := s.Optimize(); err != nil {
 		return nil, err
 	}
 	return s, nil
@@ -190,13 +200,20 @@ func (s *SQLiteStore) migrateBeersTable() error {
 		return fmt.Errorf("migrate begin tx: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	// ts_rfc exists at this point (added above if it was missing).
+	var unusable int64
+	if err := tx.QueryRow(`SELECT COUNT(1) FROM beers WHERE ts_rfc IS NULL AND ts NOT GLOB '[0-9]*'`).Scan(&unusable); err != nil {
+		return fmt.Errorf("migrate rebuild beers (count unusable ts): %w", err)
+	}
 	steps := []struct{ what, sql string }{
 		{"rename legacy beers", `ALTER TABLE beers RENAME TO beers_legacy`},
 		{"create beers", beersCreate},
 		// Missing ts_rfc is derived from the Slack ts (seconds before the dot).
 		{"copy aggregated", `INSERT INTO beers (giver_id, recipient_id, ts, ts_rfc, count)
 			SELECT giver_id, recipient_id, ts,
-				COALESCE(MIN(ts_rfc), strftime('%Y-%m-%dT%H:%M:%SZ', CAST(ts AS INTEGER), 'unixepoch')),
+				COALESCE(MIN(ts_rfc),
+					CASE WHEN ts GLOB '[0-9]*' THEN strftime('%Y-%m-%dT%H:%M:%SZ', CAST(ts AS INTEGER), 'unixepoch') END,
+					'` + legacyFallbackTs + `'),
 				COALESCE(SUM(count), COUNT(1))
 			FROM beers_legacy GROUP BY giver_id, recipient_id, ts`},
 		{"drop legacy beers", `DROP TABLE beers_legacy`},
@@ -210,6 +227,9 @@ func (s *SQLiteStore) migrateBeersTable() error {
 		return fmt.Errorf("migrate commit rebuild: %w", err)
 	}
 	zlog.Info().Msg("migrate: rebuilt legacy beers table with UNIQUE(giver_id, recipient_id, ts)")
+	if unusable > 0 {
+		zlog.Warn().Int64("rows", unusable).Str("ts_rfc", legacyFallbackTs).Msg("migrate: legacy beers rows without ts_rfc and with a non-numeric ts got a fallback ts_rfc")
+	}
 	return nil
 }
 
@@ -400,11 +420,14 @@ func (s *SQLiteStore) RunProcessedEventsPruner(ctx context.Context, interval, ma
 	runEvery(ctx, interval, prune)
 }
 
-// Optimize runs PRAGMA optimize: SQLite re-analyzes the tables whose planner
-// statistics are out of date (usually a cheap no-op). SQLite recommends it
-// periodically for long-lived connections and before closing them.
+// Optimize runs PRAGMA optimize=0x10002: SQLite re-analyzes every table whose
+// planner statistics are out of date, e.g. because it grew a lot since the
+// last ANALYZE (usually a cheap no-op; analysis_limit from openDB bounds the
+// cost). The 0x10000 flag checks all tables, not only the ones this pooled
+// connection happened to query. It runs at startup (NewSQLiteStore), hourly
+// (RunOptimizer) and on Close.
 func (s *SQLiteStore) Optimize() error {
-	if _, err := s.db.Exec(`PRAGMA optimize`); err != nil {
+	if _, err := s.db.Exec(`PRAGMA optimize=0x10002`); err != nil {
 		return fmt.Errorf("pragma optimize: %w", err)
 	}
 	return nil

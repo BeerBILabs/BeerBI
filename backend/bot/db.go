@@ -25,6 +25,9 @@ var sqlitePragmas = []string{
 	// 16 MB page cache per connection (default 2 MB), see maxOpenConns.
 	"cache_size(-16000)",
 	"temp_store(MEMORY)",
+	// ANALYZE and PRAGMA optimize sample at most ~1000 rows per index, so
+	// refreshing statistics stays fast on large tables.
+	"analysis_limit(1000)",
 }
 
 // maxOpenConns bounds the connection pool. WAL allows any number of readers
