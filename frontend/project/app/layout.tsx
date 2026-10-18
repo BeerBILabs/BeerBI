@@ -1,14 +1,20 @@
 import './globals.css'
 import type { Metadata } from 'next'
 import type { ReactNode } from 'react'
-import { Inter } from 'next/font/google'
-import { cookies } from 'next/headers'
+import localFont from 'next/font/local'
 import { ThemeProvider } from '../components/ThemeProvider'
 import ThemeToggle from '../components/ThemeToggle'
 import Logo from '../components/Logo'
 import Link from 'next/link'
 
-const inter = Inter({ subsets: ['latin'], weight: ['400', '600', '700'] })
+// Self-hosted Inter (variable weight, Latin subset) from @fontsource-variable/inter: no font
+// download from Google during `next build`, which made CI flaky, and no third-party request at runtime.
+const inter = localFont({
+  src: '../node_modules/@fontsource-variable/inter/files/inter-latin-wght-normal.woff2',
+  weight: '100 900',
+  style: 'normal',
+  display: 'swap',
+})
 
 export const metadata: Metadata = {
   title: 'BeerBot Frontend',
@@ -17,7 +23,9 @@ export const metadata: Metadata = {
 }
 
 function ThemeScript() {
-  // Blocking script that runs before React hydration to prevent FOUC
+  // Blocking script that runs before React hydration to prevent FOUC.
+  // It is the only place the theme cookie is read for the initial paint: reading it on the
+  // server (cookies()) would make every route dynamic (audit F1).
   return (
     <script
       dangerouslySetInnerHTML={{
@@ -43,12 +51,10 @@ function ThemeScript() {
   )
 }
 
-export default async function RootLayout({ children }: { children: ReactNode }) {
-  const cookieStore = await cookies()
-  const theme = cookieStore.get('theme')?.value || 'light'
-
+export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={`${theme === 'dark' ? 'dark' : ''} h-full`} suppressHydrationWarning>
+    // suppressHydrationWarning: ThemeScript may add the `dark` class before React hydrates.
+    <html lang="en" className="h-full" suppressHydrationWarning>
       <head>
         <ThemeScript />
       </head>

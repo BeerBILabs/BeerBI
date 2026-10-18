@@ -107,8 +107,8 @@ See [justfile](justfile) for the latest deployment instructions.
 
 | Variable                   | Required | Default                 | Description                    |
 |----------------------------|----------|-------------------------|--------------------------------|
-| `NEXT_PUBLIC_BACKEND_BASE` | ✅       | `http://localhost:8080` | Backend API base URL           |
-| `NEXT_PUBLIC_API_TOKEN`    | ✅       | -                       | API authentication token       |
+| `BACKEND_BASE` | ✅ | `http://localhost:8080` | Backend URL, read at runtime by the Next.js server (proxy and `/api/leaderboard`); never sent to the browser |
+| `API_TOKEN` | ✅ | - | Bearer token for the backend API; server-side only, the browser never sees it |
 
 ### Full Stack Deployment
 

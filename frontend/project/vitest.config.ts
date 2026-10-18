@@ -3,11 +3,15 @@ import { fileURLToPath } from 'node:url';
 
 // Minimum line coverage (%) over the files listed in `coverage.include`.
 // Raise it when more tests land; CI fails below this value.
-const COVERAGE_THRESHOLD = Number(process.env.FRONTEND_COVERAGE_THRESHOLD ?? 33);
+const COVERAGE_THRESHOLD = Number(process.env.FRONTEND_COVERAGE_THRESHOLD ?? 80);
 
 export default defineConfig({
   resolve: {
-    alias: { '@': fileURLToPath(new URL('./', import.meta.url)) },
+    alias: {
+      '@': fileURLToPath(new URL('./', import.meta.url)),
+      // The real package throws outside a React Server Components build; tests import server modules directly.
+      'server-only': fileURLToPath(new URL('./test/server-only.ts', import.meta.url)),
+    },
   },
   test: {
     environment: 'jsdom',

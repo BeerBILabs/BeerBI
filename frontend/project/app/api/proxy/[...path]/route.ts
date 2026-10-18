@@ -1,43 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { backendApiUrl, backendAuthHeaders } from '@/lib/server/backend'
 
 type ProxyParams = { path?: string[] | string }
 
-async function proxy(
-  request: NextRequest,
-  ctx: { params: Promise<ProxyParams> }
-) {
+// Request headers passed on to the backend. Authorization is deliberately not among them:
+// the proxy exists so the browser never holds a token, so it always uses API_TOKEN.
+const FORWARDED_REQUEST_HEADERS = ['accept', 'content-type', 'if-none-match', 'if-modified-since']
+
+// Response headers passed back to the browser, so backend caching (Cache-Control/ETag) works.
+// Content-Encoding and Content-Length are not forwarded: fetch() has already decoded the body.
+const FORWARDED_RESPONSE_HEADERS = ['content-type', 'cache-control', 'etag', 'last-modified', 'expires', 'vary']
+
+// Statuses that must not carry a body.
+const NULL_BODY_STATUSES = new Set([204, 205, 304])
+
+async function proxy(request: NextRequest, ctx: { params: Promise<ProxyParams> }) {
   const p = await ctx.params
   const pathArr = Array.isArray(p?.path) ? p.path : (p?.path ? [p.path] : [])
-  const pathStr = pathArr.join('/')
+  const url = backendApiUrl(pathArr.join('/'), request.nextUrl?.search || '')
 
-  const backendBase = process.env.NEXT_PUBLIC_BACKEND_BASE || 'http://localhost:8080'
-  const search = request.nextUrl?.search || ''
-  const url = `${backendBase}/api/${pathStr}${search}`
-
-  // Rebuild headers, propagate Authorization, or fall back to API_TOKEN
-  const headers = new Headers()
-  const authHeader = request.headers.get('authorization')
-  let authSource: 'none' | 'client' | 'environment' = 'none'
-
-  if (authHeader) {
-    headers.set('Authorization', authHeader)
-    authSource = 'client'
-  } else if (process.env.API_TOKEN) {
-    headers.set('Authorization', `Bearer ${process.env.API_TOKEN}`)
-    authSource = 'environment'
+  const headers = backendAuthHeaders()
+  for (const name of FORWARDED_REQUEST_HEADERS) {
+    const value = request.headers.get(name)
+    if (value) headers.set(name, value)
   }
 
-  // Forward content-type if present
-  const contentType = request.headers.get('content-type')
-  if (contentType) headers.set('content-type', contentType)
-
-  // Loud log
-  console.log(`proxy (app router) authSource=${authSource} path=${pathStr}`)
-
-  // Prepare body for non-GET/HEAD
-  let body: BodyInit | undefined = undefined
+  let body: ArrayBuffer | undefined
   if (!['GET', 'HEAD'].includes(request.method)) {
-    body = (await request.arrayBuffer()) as unknown as BodyInit
+    body = await request.arrayBuffer()
   }
 
   try {
@@ -45,23 +35,30 @@ async function proxy(
       method: request.method,
       headers,
       body,
-      // Avoid sending cookies/credentials to different origin by default
       redirect: 'manual',
+      cache: 'no-store',
     })
 
-    const respContentType = resp.headers.get('Content-Type') || 'text/plain'
-    const text = await resp.text()
+    const outHeaders = new Headers()
+    for (const name of FORWARDED_RESPONSE_HEADERS) {
+      const value = resp.headers.get(name)
+      if (value) outHeaders.set(name, value)
+    }
+    if (!outHeaders.has('content-type')) outHeaders.set('content-type', 'text/plain')
 
-    return new NextResponse(text, {
-      status: resp.status,
-      headers: { 'Content-Type': respContentType },
-    })
+    // Stream the body through instead of buffering it.
+    const outBody = NULL_BODY_STATUSES.has(resp.status) || request.method === 'HEAD' ? null : resp.body
+    return new NextResponse(outBody, { status: resp.status, headers: outHeaders })
   } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 })
+    return NextResponse.json({ error: (err as Error).message }, { status: 502 })
   }
 }
 
 export async function GET(request: NextRequest, ctx: { params: Promise<ProxyParams> }) {
+  return proxy(request, ctx)
+}
+
+export async function HEAD(request: NextRequest, ctx: { params: Promise<ProxyParams> }) {
   return proxy(request, ctx)
 }
 

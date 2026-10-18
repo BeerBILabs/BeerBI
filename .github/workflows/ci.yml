@@ -19,7 +19,7 @@ env:
   # and line coverage (%) for the frontend.
   # Set to the current level; raise them as tests are added.
   BACKEND_COVERAGE_THRESHOLD: 81
-  FRONTEND_COVERAGE_THRESHOLD: 33
+  FRONTEND_COVERAGE_THRESHOLD: 80
 
 jobs:
   changes:
@@ -138,5 +138,5 @@ jobs:
       - name: Build
         run: bun run build
         env:
-          NEXT_PUBLIC_BACKEND_BASE: http://localhost:8080
+          BACKEND_BASE: http://localhost:8080
           NEXT_TELEMETRY_DISABLED: "1"

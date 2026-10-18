@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   BarChart,
   Bar,
@@ -13,24 +13,16 @@ import {
 } from "recharts";
 import { ChartContainer } from "./ChartContainer";
 import { defaultChartColors, formatNumber } from "@/lib/chartTheme";
-import { userDataManager } from "@/lib/userCache";
-
-interface TopUserStats {
-  userId: string;
-  count: number;
-}
-
-interface TopUsersResult {
-  givers: TopUserStats[];
-  recipients: TopUserStats[];
-}
+import { knownUserNames, resolveUsers, topUserRefs } from "@/lib/userNames";
+import type { TopUserStats, TopUsersResult } from "@/lib/statsTypes";
 
 interface LeaderboardChartProps {
   startDate: string;
   endDate: string;
   type: "givers" | "recipients";
   limit?: number;
-  preloadedData?: Array<{ userId: string; count: number }>; // Backend uses camelCase
+  /** Rows from /stats/combined; names are taken from them when the backend sends them inline. */
+  preloadedData?: TopUserStats[];
 }
 
 export function LeaderboardChart({
@@ -46,63 +38,59 @@ export function LeaderboardChart({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const controller = new AbortController();
+
     async function fetchData() {
-      setLoading(true);
       setError(null);
       try {
         let users: TopUserStats[];
 
         if (preloadedData) {
-          // Use preloaded data directly (already in correct format)
+          // Preloaded rows are shown at once; the chart stays mounted while names resolve.
           users = preloadedData;
         } else {
-          // Fetch from API
+          setLoading(true);
           const params = new URLSearchParams({
             start: startDate,
             end: endDate,
             limit: limit.toString(),
           });
-          const resp = await fetch(`/api/proxy/stats/top?${params}`);
+          const resp = await fetch(`/api/proxy/stats/top?${params}`, { signal: controller.signal });
           if (!resp.ok) throw new Error("Failed to fetch top users");
           const json: TopUsersResult = await resp.json();
           users = type === "givers" ? json.givers : json.recipients;
         }
-
+        if (controller.signal.aborted) return;
         setData(users || []);
 
-        // Batch fetch user names using UserDataManager
-        const userIds = (users || []).slice(0, 10).map((u) => u.userId);
-        if (userIds.length > 0) {
-          const userInfos = await userDataManager.getUsers(userIds);
-          const nameMap: Record<string, string> = {};
-          for (const [userId, info] of Object.entries(userInfos)) {
-            nameMap[userId] = info.real_name;
-          }
-          // Fill in any missing users with userId as fallback
-          for (const userId of userIds) {
-            if (!nameMap[userId]) {
-              nameMap[userId] = userId;
-            }
-          }
-          setNames(nameMap);
+        const shown = (users || []).slice(0, 10);
+        if (shown.length > 0) {
+          const resolved = await resolveUsers(topUserRefs(shown));
+          if (controller.signal.aborted) return;
+          setNames(Object.fromEntries(Object.entries(resolved).map(([id, u]) => [id, u.name])));
         }
       } catch (err) {
+        if (controller.signal.aborted) return;
         setError(err instanceof Error ? err.message : "An error occurred");
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     }
     fetchData();
+
+    return () => controller.abort();
   }, [startDate, endDate, type, limit, preloadedData]);
 
   const colors = defaultChartColors;
   const barColor = type === "givers" ? colors.given : colors.received;
   const title = type === "givers" ? "Top Givers" : "Top Recipients";
 
-  // Prepare chart data with names
+  // Names known without a request (inline or cached) label new rows at once; `names` may still
+  // belong to the previous rows while resolveUsers runs.
+  const quickNames = useMemo(() => knownUserNames(topUserRefs(data)), [data]);
   const chartData = data.map((d) => ({
     ...d,
-    name: names[d.userId] || d.userId,
+    name: quickNames[d.userId] || names[d.userId] || d.userId,
   }));
 
   return (

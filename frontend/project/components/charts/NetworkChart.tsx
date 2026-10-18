@@ -1,21 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { ChartContainer } from "./ChartContainer";
 import { defaultChartColors } from "@/lib/chartTheme";
-import { userDataManager } from "@/lib/userCache";
-
-interface PairStats {
-  giver: string;
-  recipient: string;
-  count: number;
-}
+import { knownUserNames, pairUserRefs, resolveUsers } from "@/lib/userNames";
+import type { PairStats } from "@/lib/statsTypes";
 
 interface NetworkChartProps {
   startDate: string;
   endDate: string;
   limit?: number;
-  preloadedData?: Array<{ giver: string; recipient: string; count: number }>;
+  /** Rows from /stats/combined; names are taken from them when the backend sends them inline. */
+  preloadedData?: PairStats[];
 }
 
 export function NetworkChart({ startDate, endDate, limit = 20, preloadedData }: NetworkChartProps) {
@@ -25,60 +21,52 @@ export function NetworkChart({ startDate, endDate, limit = 20, preloadedData }: 
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    const controller = new AbortController();
+
     async function fetchData() {
-      setLoading(true);
       setError(null);
       try {
         let pairs: PairStats[];
 
         if (preloadedData) {
+          // Preloaded rows are shown at once; the list stays mounted while names resolve.
           pairs = preloadedData;
         } else {
+          setLoading(true);
           const params = new URLSearchParams({
             start: startDate,
             end: endDate,
             limit: limit.toString(),
           });
-          const resp = await fetch(`/api/proxy/stats/pairs?${params}`);
+          const resp = await fetch(`/api/proxy/stats/pairs?${params}`, { signal: controller.signal });
           if (!resp.ok) throw new Error("Failed to fetch pair data");
           const json = await resp.json();
           pairs = json || [];
         }
-
+        if (controller.signal.aborted) return;
         setData(pairs);
 
-        // Collect all unique user IDs
-        const userIds = new Set<string>();
-        pairs.forEach((p: PairStats) => {
-          userIds.add(p.giver);
-          userIds.add(p.recipient);
-        });
-
-        // Batch fetch user names using UserDataManager
-        if (userIds.size > 0) {
-          const userInfos = await userDataManager.getUsers(Array.from(userIds));
-          const nameMap: Record<string, string> = {};
-          for (const [userId, info] of Object.entries(userInfos)) {
-            nameMap[userId] = info.real_name;
-          }
-          // Fill in any missing users with userId as fallback
-          for (const userId of userIds) {
-            if (!nameMap[userId]) {
-              nameMap[userId] = userId;
-            }
-          }
-          setNames(nameMap);
+        if (pairs.length > 0) {
+          const resolved = await resolveUsers(pairUserRefs(pairs));
+          if (controller.signal.aborted) return;
+          setNames(Object.fromEntries(Object.entries(resolved).map(([id, u]) => [id, u.name])));
         }
       } catch (err) {
+        if (controller.signal.aborted) return;
         setError(err instanceof Error ? err.message : "An error occurred");
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     }
     fetchData();
+
+    return () => controller.abort();
   }, [startDate, endDate, limit, preloadedData]);
 
   const colors = defaultChartColors;
+  // Names known without a request (inline or cached) label new rows at once; `names` may still
+  // belong to the previous rows while resolveUsers runs.
+  const quickNames = useMemo(() => knownUserNames(pairUserRefs(data)), [data]);
 
   // Calculate max count for scaling
   const maxCount = Math.max(...data.map((d) => d.count), 1);
@@ -109,8 +97,8 @@ export function NetworkChart({ startDate, endDate, limit = 20, preloadedData }: 
     >
       <div className="space-y-2 max-h-80 overflow-y-auto pr-2">
         {data.map((pair, index) => {
-          const giverName = names[pair.giver] || pair.giver;
-          const recipientName = names[pair.recipient] || pair.recipient;
+          const giverName = quickNames[pair.giver] || names[pair.giver] || pair.giver;
+          const recipientName = quickNames[pair.recipient] || names[pair.recipient] || pair.recipient;
           const widthPercent = (pair.count / maxCount) * 100;
 
           return (

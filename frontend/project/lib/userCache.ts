@@ -4,34 +4,139 @@ export type CachedUserInfo = {
   cached_at: number;
 };
 
-const USER_CACHE_KEY = "beerbot_user_cache";
-const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+type UserData = { real_name: string; profile_image: string | null };
 
-export function getUserCache(): Record<string, CachedUserInfo> {
-  if (typeof window === "undefined") return {};
+const USER_CACHE_KEY = "beerbot_user_cache";
+export const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+/** Upper bound for stored users; the entries written longest ago are dropped first. */
+export const MAX_CACHE_ENTRIES = 500;
+
+// The localStorage blob is parsed once into this Map and written back in the background
+// (audit F4: it used to be parsed for every single lookup). Map order is write order, so the
+// first entries are the ones written longest ago.
+let memory: Map<string, CachedUserInfo> | null = null;
+let flushScheduled = false;
+let flushGeneration = 0; // bumped by the test reset so a pending flush of an old cache is dropped
+let pagehideHooked = false;
+
+function getStorage(): Storage | null {
+  if (typeof window === "undefined") return null;
   try {
-    const raw = localStorage.getItem(USER_CACHE_KEY);
-    return raw ? JSON.parse(raw) : {};
+    return window.localStorage;
   } catch {
-    return {};
+    return null; // access can throw when storage is disabled
   }
 }
 
-export function setUserCache(cache: Record<string, CachedUserInfo>): void {
-  if (typeof window === "undefined") return;
+function isCachedUserInfo(value: unknown): value is CachedUserInfo {
+  if (!value || typeof value !== "object") return false;
+  const v = value as Record<string, unknown>;
+  return (
+    typeof v.real_name === "string" &&
+    typeof v.cached_at === "number" &&
+    (v.profile_image === null || typeof v.profile_image === "string")
+  );
+}
+
+function trim(map: Map<string, CachedUserInfo>): void {
+  while (map.size > MAX_CACHE_ENTRIES) {
+    const oldest = map.keys().next().value;
+    if (oldest === undefined) break;
+    map.delete(oldest);
+  }
+}
+
+/** Valid entries of the stored blob, oldest first; empty if it is missing or corrupt. */
+function readStored(storage: Storage): Array<[string, CachedUserInfo]> {
   try {
-    localStorage.setItem(USER_CACHE_KEY, JSON.stringify(cache));
+    const raw = storage.getItem(USER_CACHE_KEY);
+    const parsed: unknown = raw ? JSON.parse(raw) : null;
+    if (!parsed || typeof parsed !== "object") return [];
+    return Object.entries(parsed as Record<string, unknown>)
+      .filter((e): e is [string, CachedUserInfo] => isCachedUserInfo(e[1]))
+      .sort((a, b) => a[1].cached_at - b[1].cached_at);
+  } catch {
+    return []; // corrupt blob: start empty, the next flush overwrites it
+  }
+}
+
+function load(): Map<string, CachedUserInfo> {
+  // On the server there is no storage and nothing must be shared between requests.
+  if (typeof window === "undefined") return new Map();
+  if (memory) return memory;
+
+  memory = new Map();
+  const storage = getStorage();
+  if (storage) {
+    for (const [id, info] of readStored(storage)) memory.set(id, info);
+    trim(memory);
+  }
+
+  if (!pagehideHooked) {
+    pagehideHooked = true;
+    window.addEventListener("pagehide", flushUserCache);
+  }
+  return memory;
+}
+
+/**
+ * Write the in-memory cache to localStorage now.
+ *
+ * Other tabs write the same key, so the stored blob is merged in first (per user the newer
+ * `cached_at` wins) instead of overwritten; this tab then also sees what the others cached.
+ */
+export function flushUserCache(): void {
+  flushScheduled = false;
+  const storage = getStorage();
+  if (!storage || !memory) return;
+  const merged = new Map<string, CachedUserInfo>(memory);
+  for (const [id, info] of readStored(storage)) {
+    const mine = merged.get(id);
+    if (!mine || mine.cached_at < info.cached_at) merged.set(id, info);
+  }
+  memory = new Map(Array.from(merged).sort((a, b) => a[1].cached_at - b[1].cached_at));
+  trim(memory);
+  try {
+    storage.setItem(USER_CACHE_KEY, JSON.stringify(Object.fromEntries(memory)));
   } catch {
     // localStorage might be full or disabled
   }
 }
 
+function scheduleFlush(): void {
+  if (flushScheduled || typeof window === "undefined") return;
+  flushScheduled = true;
+  const generation = flushGeneration;
+  const run = () => {
+    if (generation === flushGeneration) flushUserCache();
+  };
+  if (typeof window.requestIdleCallback === "function") {
+    window.requestIdleCallback(run, { timeout: 1000 });
+  } else {
+    setTimeout(run, 0);
+  }
+}
+
 export function getCachedUser(userId: string): CachedUserInfo | null {
-  const cache = getUserCache();
-  const entry = cache[userId];
+  const entry = load().get(userId);
   if (!entry) return null;
   if (Date.now() - entry.cached_at > CACHE_TTL_MS) return null;
   return entry;
+}
+
+export function setCachedUsers(users: Record<string, UserData>): void {
+  const map = load();
+  const now = Date.now();
+  for (const [userId, data] of Object.entries(users)) {
+    map.delete(userId); // re-insert at the end: most recently written
+    map.set(userId, {
+      real_name: data.real_name,
+      profile_image: data.profile_image,
+      cached_at: now,
+    });
+  }
+  trim(map);
+  scheduleFlush();
 }
 
 export function setCachedUser(
@@ -39,38 +144,26 @@ export function setCachedUser(
   realName: string,
   profileImage: string | null
 ): void {
-  const cache = getUserCache();
-  cache[userId] = {
-    real_name: realName,
-    profile_image: profileImage,
-    cached_at: Date.now(),
-  };
-  setUserCache(cache);
+  setCachedUsers({ [userId]: { real_name: realName, profile_image: profileImage } });
 }
 
-export function setCachedUsers(
-  users: Record<string, { real_name: string; profile_image: string | null }>
-): void {
-  const cache = getUserCache();
-  const now = Date.now();
-  for (const [userId, data] of Object.entries(users)) {
-    cache[userId] = {
-      real_name: data.real_name,
-      profile_image: data.profile_image,
-      cached_at: now,
-    };
-  }
-  setUserCache(cache);
+/** Test helper: forget the in-memory copy so the next access reads localStorage again. */
+export function resetUserCacheForTests(): void {
+  flushGeneration++;
+  memory = null;
+  flushScheduled = false;
 }
 
 /**
  * UserDataManager - Singleton for managing user data fetching with deduplication
- * Provides batch fetching, in-flight request deduplication, and localStorage caching
+ * Provides batch fetching, in-flight request deduplication (per user ID, shared by single and
+ * batch lookups) and caching.
  */
 class UserDataManager {
   private static instance: UserDataManager;
   private inFlightRequests: Map<string, Promise<CachedUserInfo | null>>;
   private readonly BATCH_SIZE = 100; // Max 100 IDs per batch request
+  private readonly MAX_INDIVIDUAL_RETRIES = 10; // retry missing IDs one by one only if few failed
 
   private constructor() {
     this.inFlightRequests = new Map();
@@ -87,110 +180,104 @@ class UserDataManager {
    * Fetch a single user, with deduplication and caching
    */
   async getUser(userId: string): Promise<CachedUserInfo | null> {
-    // Validate userId
     if (!userId || userId.trim() === "") {
       return null;
     }
 
-    // Check localStorage cache first
     const cached = getCachedUser(userId);
     if (cached) {
       return cached;
     }
 
-    // Check if request is already in flight
-    const existing = this.inFlightRequests.get(userId);
-    if (existing) {
-      return existing;
-    }
-
-    // Create new request
-    const promise = this.fetchSingleUser(userId);
-    this.inFlightRequests.set(userId, promise);
-
-    try {
-      const result = await promise;
-      return result;
-    } finally {
-      this.inFlightRequests.delete(userId);
-    }
+    return (
+      this.inFlightRequests.get(userId) ??
+      this.track(userId, this.fetchSingleUser(userId))
+    );
   }
 
   /**
-   * Fetch multiple users efficiently with batching
+   * Fetch multiple users efficiently with batching. IDs that another call is already
+   * fetching are not requested again; their pending result is shared.
    */
   async getUsers(userIds: string[]): Promise<Record<string, CachedUserInfo>> {
     const results: Record<string, CachedUserInfo> = {};
-    
-    // Filter out empty, null, or undefined IDs
-    const validIds = userIds.filter((id) => id && id.trim() !== "");
-    
-    if (validIds.length === 0) {
-      return results;
-    }
+    const uniqueIds = Array.from(
+      new Set(userIds.filter((id) => id && id.trim() !== ""))
+    );
 
-    const missing: string[] = [];
+    const pending: Array<[string, Promise<CachedUserInfo | null>]> = [];
+    const toFetch: string[] = [];
 
-    // Check cache for all users
-    for (const userId of validIds) {
+    for (const userId of uniqueIds) {
       const cached = getCachedUser(userId);
       if (cached) {
         results[userId] = cached;
+        continue;
+      }
+      const inFlight = this.inFlightRequests.get(userId);
+      if (inFlight) {
+        pending.push([userId, inFlight]);
       } else {
-        missing.push(userId);
+        toFetch.push(userId);
       }
     }
 
-    if (missing.length === 0) {
-      return results;
-    }
-
-    // Fetch missing users in batches
-    const batches: string[][] = [];
-    for (let i = 0; i < missing.length; i += this.BATCH_SIZE) {
-      batches.push(missing.slice(i, i + this.BATCH_SIZE));
-    }
-
-    // Fetch all batches in parallel, with retry on partial failure
-    const batchResults = await Promise.allSettled(
-      batches.map((batch) => this.fetchBatchUsers(batch))
-    );
-
-    // Collect results and identify failures
-    const failedIds: string[] = [];
-    for (let i = 0; i < batchResults.length; i++) {
-      const result = batchResults[i];
-      if (result.status === "fulfilled") {
-        Object.assign(results, result.value);
-        // Track which IDs from this batch failed
-        const batchIds = batches[i];
-        for (const id of batchIds) {
-          if (!result.value[id]) {
-            failedIds.push(id);
-          }
-        }
-      } else {
-        // Entire batch failed - add all IDs to retry
-        failedIds.push(...batches[i]);
+    for (let i = 0; i < toFetch.length; i += this.BATCH_SIZE) {
+      const batch = toFetch.slice(i, i + this.BATCH_SIZE);
+      const batchPromise = this.fetchBatchWithRetry(batch);
+      for (const userId of batch) {
+        pending.push([
+          userId,
+          this.track(userId, batchPromise.then((found) => found[userId] ?? null)),
+        ]);
       }
     }
 
-    // Retry failed IDs individually (partial render strategy)
-    if (failedIds.length > 0 && failedIds.length <= 10) {
-      // Only retry individually if few failures
-      const retryResults = await Promise.allSettled(
-        failedIds.map((id) => this.fetchSingleUser(id))
-      );
-
-      for (let i = 0; i < failedIds.length; i++) {
-        const result = retryResults[i];
-        if (result.status === "fulfilled" && result.value) {
-          results[failedIds[i]] = result.value;
-        }
-      }
-    }
+    const resolved = await Promise.all(pending.map(([, promise]) => promise));
+    pending.forEach(([userId], i) => {
+      const info = resolved[i];
+      if (info) results[userId] = info;
+    });
 
     return results;
+  }
+
+  /** Register a pending lookup so concurrent callers share it; removed once settled. */
+  private track(
+    userId: string,
+    request: Promise<CachedUserInfo | null>
+  ): Promise<CachedUserInfo | null> {
+    const tracked: Promise<CachedUserInfo | null> = request
+      .catch(() => null)
+      .finally(() => {
+        if (this.inFlightRequests.get(userId) === tracked) {
+          this.inFlightRequests.delete(userId);
+        }
+      });
+    this.inFlightRequests.set(userId, tracked);
+    return tracked;
+  }
+
+  /** One batch request; IDs it did not return are retried one by one if only a few are missing. */
+  private async fetchBatchWithRetry(
+    userIds: string[]
+  ): Promise<Record<string, CachedUserInfo>> {
+    let found: Record<string, CachedUserInfo> = {};
+    try {
+      found = await this.fetchBatchUsers(userIds);
+    } catch {
+      found = {};
+    }
+
+    const failed = userIds.filter((id) => !found[id]);
+    if (failed.length > 0 && failed.length <= this.MAX_INDIVIDUAL_RETRIES) {
+      const retried = await Promise.all(failed.map((id) => this.fetchSingleUser(id)));
+      failed.forEach((id, i) => {
+        const info = retried[i];
+        if (info) found[id] = info;
+      });
+    }
+    return found;
   }
 
   /**
@@ -204,6 +291,8 @@ class UserDataManager {
         `/api/proxy/user?user=${encodeURIComponent(userId)}`
       );
 
+      // 404 (unknown user) and 503 (Slack lookup still running, `Retry-After`) are not cached:
+      // the next call asks again.
       if (!response.ok) {
         return null;
       }
@@ -215,7 +304,6 @@ class UserDataManager {
         cached_at: Date.now(),
       };
 
-      // Cache to localStorage
       setCachedUser(userId, data.real_name, data.profile_image);
 
       return userInfo;
@@ -245,12 +333,8 @@ class UserDataManager {
         throw new Error(`Batch fetch failed: ${response.statusText}`);
       }
 
-      const data: Record<
-        string,
-        { real_name: string; profile_image: string }
-      > = await response.json();
+      const data: Record<string, UserData> = await response.json();
 
-      // Convert to CachedUserInfo format
       const results: Record<string, CachedUserInfo> = {};
       const now = Date.now();
 
@@ -262,7 +346,6 @@ class UserDataManager {
         };
       }
 
-      // Batch cache to localStorage
       setCachedUsers(data);
 
       return results;

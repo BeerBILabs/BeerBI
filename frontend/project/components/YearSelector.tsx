@@ -2,16 +2,18 @@
 
 interface YearSelectorProps {
   selectedYear: number;
+  /** Newest year in the list; passed in so the list never depends on the render time (see useHydrated). */
+  currentYear: number;
   onChange: (year: number) => void;
   disabled?: boolean;
 }
 
 export function YearSelector({
   selectedYear,
+  currentYear,
   onChange,
   disabled = false,
 }: YearSelectorProps) {
-  const currentYear = new Date().getFullYear();
   const years: number[] = [];
   for (let y = currentYear; y >= 2020; y--) {
     years.push(y);
