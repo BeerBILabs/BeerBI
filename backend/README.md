@@ -42,3 +42,4 @@ All endpoints require Bearer token authentication.
 | `CHANNEL`     | ❌       | -        | Specific channel ID to monitor |
 | `EMOJI`       | ❌       | `:beer:` | Emoji to track                 |
 | `MAX_PER_DAY` | ❌       | `10`     | Maximum beers per user per day |
+| `PROCESSED_EVENTS_RETENTION_DAYS` | ❌ | `30` | Days to keep Slack event deduplication records (`processed_events`); whole days from 1 to 3650, pruned daily |

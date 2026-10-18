@@ -73,7 +73,7 @@ Single Go binary with these layers:
 | `GET /api/user?user=` | Yes | Slack user info (with cache fallback) |
 | `GET /api/givers` | No | All giver IDs |
 | `GET /api/recipients` | No | All recipient IDs |
-| `GET /api/stats/timeline?start=&end=&granularity=` | Yes | Activity timeline (day/week/month) |
+| `GET /api/stats/timeline?start=&end=&granularity=` | Yes | Activity timeline (day/week/month): `[{date, count}]`, one series (every beer is given and received at once) |
 | `GET /api/stats/quarterly?start_year=&end_year=` | Yes | Quarterly aggregation |
 | `GET /api/stats/top?start=&end=&limit=` | Yes | Top givers/recipients |
 | `GET /api/stats/heatmap?start=&end=` | Yes | Calendar heatmap data |
@@ -108,7 +108,7 @@ ok, err := store.TryMarkEventProcessed(eventID, ts)
 if !ok { return } // Already processed
 // Now safe to process
 ```
-`processed_events` only needs to cover Slack's redelivery window (minutes). Records older than 30 days are pruned daily (`RunProcessedEventsPruner`), so dedup only applies to events redelivered within that window.
+`processed_events` only needs to cover Slack's redelivery window (minutes). Records older than `PROCESSED_EVENTS_RETENTION_DAYS` (default 30, 1–3650 days) are pruned daily (`RunProcessedEventsPruner`), so dedup only applies to events redelivered within that window.
 
 ### User Caching (two layers)
 - **Backend:** `user_cache` SQLite table — survives restarts, allows showing deactivated Slack users
@@ -133,6 +133,7 @@ Components fetch via `/api/proxy/{endpoint}`. The `Leaderboard.tsx` component us
 - `APP_TOKEN` — Slack App-Level Token (needs `connections:write`)
 - `API_TOKEN` — Bearer token for REST API auth
 - `DB_PATH` — SQLite database path (default: `/data/bot.db`)
+- `PROCESSED_EVENTS_RETENTION_DAYS` — days to keep `processed_events` dedup records (default: `30`, whole days from 1 to 3650; flag `-processed-events-retention-days` overrides it; an invalid value stops the bot at startup)
 - `PORT` — HTTP server port (default: `8080`)
 
 **Frontend (via compose):**

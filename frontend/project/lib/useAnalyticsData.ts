@@ -2,8 +2,7 @@ import { useState, useEffect } from "react";
 
 type TimelinePoint = {
   date: string;
-  given: number;
-  received: number;
+  count: number; // beers given in the period
 };
 
 type TopUserStats = {

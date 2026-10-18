@@ -9,22 +9,21 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
-  Legend,
 } from "recharts";
 import { ChartContainer } from "./ChartContainer";
 import { GranularityToggle, type Granularity } from "./GranularityToggle";
 import { defaultChartColors, formatDate, formatNumber } from "@/lib/chartTheme";
 
+// One series: every beer is given and received at the same time.
 interface TimelinePoint {
   date: string;
-  given: number;
-  received: number;
+  count: number;
 }
 
 interface ActivityChartProps {
   startDate: string;
   endDate: string;
-  preloadedData?: Array<{ date: string; given: number; received: number }>;
+  preloadedData?: TimelinePoint[];
 }
 
 export function ActivityChart({ startDate, endDate, preloadedData }: ActivityChartProps) {
@@ -70,7 +69,7 @@ export function ActivityChart({ startDate, endDate, preloadedData }: ActivityCha
   return (
     <ChartContainer
       title="Activity Over Time"
-      subtitle="Beer giving and receiving trends"
+      subtitle="Beers given per period"
       loading={loading}
       error={error}
       onRetry={() => setGranularity(granularity)}
@@ -85,10 +84,6 @@ export function ActivityChart({ startDate, endDate, preloadedData }: ActivityCha
               <linearGradient id="givenGradient" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor={colors.given} stopOpacity={0.8} />
                 <stop offset="95%" stopColor={colors.given} stopOpacity={0.1} />
-              </linearGradient>
-              <linearGradient id="receivedGradient" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor={colors.received} stopOpacity={0.8} />
-                <stop offset="95%" stopColor={colors.received} stopOpacity={0.1} />
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" stroke={colors.border} />
@@ -117,21 +112,12 @@ export function ActivityChart({ startDate, endDate, preloadedData }: ActivityCha
               labelFormatter={(v) => formatDate(v as string, granularity)}
               cursor={{ stroke: "hsl(var(--accent))", strokeWidth: 2 }}
             />
-            <Legend />
             <Area
               type="monotone"
-              dataKey="given"
-              name="Given"
+              dataKey="count"
+              name="Beers"
               stroke={colors.given}
               fill="url(#givenGradient)"
-              strokeWidth={2}
-            />
-            <Area
-              type="monotone"
-              dataKey="received"
-              name="Received"
-              stroke={colors.received}
-              fill="url(#receivedGradient)"
               strokeWidth={2}
             />
           </AreaChart>
