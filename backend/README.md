@@ -24,7 +24,7 @@ All endpoints require Bearer token authentication.
 
 ### Users
 
-- `GET /api/user?user={user_id}` → `{"real_name": "...", "profile_image": "..."}`
+- `GET /api/user?user={user_id}` → `{"real_name": "...", "profile_image": "..."}` (404 if unknown; 503 with `Retry-After` while the Slack lookup is still running or failed)
 - `GET /api/users?ids={id1},{id2}` (max. 100) → `{"<id>": {"real_name": "...", "profile_image": "..."}}`
 
 Names are resolved Redis → SQLite `user_cache` → Slack `users.info` (10 parallel workers) and preloaded from `users.list` at start and daily (scope `users:read`).

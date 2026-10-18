@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"errors"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,6 +20,7 @@ type APIHandlers struct {
 	slackManager *SlackConnectionManager
 	redisCache   *RedisUserCache
 	users        *UserResolver
+	userWait     time.Duration // wait budget of /api/user(s); zero means usersRequestWait
 	logger       zerolog.Logger
 	// now is the clock used for range matching and cache headers; nil means time.Now.
 	// Tests inject a fixed clock.
@@ -148,8 +151,18 @@ func (h *APIHandlers) UserHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Redis -> SQLite user_cache -> Slack users.info (see users.go).
-	info, ok := h.users.ResolveOne(r.Context(), userID, usersRequestWait)
-	if !ok {
+	info, err := h.users.ResolveOne(r.Context(), userID, h.usersWait())
+	var unavailable *UserLookupUnavailableError
+	switch {
+	case errors.As(err, &unavailable):
+		// Slack is slow or failing: tell the client to retry instead of caching a 404.
+		h.logger.Warn().Str("handler", "user").Str("userID", userID).Dur("retry_after", unavailable.RetryAfter).
+			Msg("user lookup not finished")
+		w.Header().Set("Retry-After", strconv.Itoa(int(math.Ceil(unavailable.RetryAfter.Seconds()))))
+		w.Header().Set("Cache-Control", "no-store")
+		http.Error(w, "user lookup unavailable, retry later", http.StatusServiceUnavailable)
+		return
+	case err != nil:
 		h.logger.Warn().Str("handler", "user").Str("userID", userID).Msg("user not found in cache or Slack")
 		http.Error(w, "user not found", http.StatusNotFound)
 		return
@@ -365,7 +378,7 @@ func (h *APIHandlers) BatchUsersHandler(w http.ResponseWriter, r *http.Request) 
 
 	// Redis -> SQLite user_cache -> Slack users.info on a bounded worker pool.
 	// Lookups still running after usersRequestWait finish in the background.
-	results := h.users.Resolve(r.Context(), userIDs, usersRequestWait)
+	results := h.users.Resolve(r.Context(), userIDs, h.usersWait())
 
 	h.logger.Info().Str("handler", "batch_users").Int("requested", len(userIDs)).Int("found", len(results)).Msg("request completed")
 	// No caching: the result may be partial while lookups are still running.

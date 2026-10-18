@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -70,6 +71,54 @@ func TestUserHandler(t *testing.T) {
 	}
 	if sl.callsFor("UCACHED") != 0 {
 		t.Error("cached user fetched from Slack")
+	}
+}
+
+func TestUserHandler_SlackTimeoutAndErrorAre503(t *testing.T) {
+	sl := newFakeSlackUsers(300 * time.Millisecond)
+	sl.add("USLOW", "Slow User")
+	sl.fail["UERR"] = errors.New("internal_error")
+	h, _ := newUserTestHandlers(t, false, sl)
+	h.userWait = 20 * time.Millisecond
+
+	rec := serve(h.UserHandler, "/api/user?user=USLOW")
+	if rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") != "5" {
+		t.Errorf("slow Slack: status %d, Retry-After %q; want 503, 5", rec.Code, rec.Header().Get("Retry-After"))
+	}
+	if cc := rec.Header().Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("503 Cache-Control = %q, want no-store", cc)
+	}
+
+	h.userWait = time.Second
+	for range 2 {
+		rec = serve(h.UserHandler, "/api/user?user=UERR")
+		if rec.Code != http.StatusServiceUnavailable || rec.Header().Get("Retry-After") == "" {
+			t.Errorf("Slack error: status %d, Retry-After %q; want 503 with Retry-After", rec.Code, rec.Header().Get("Retry-After"))
+		}
+	}
+	if c := sl.callsFor("UERR"); c != 1 {
+		t.Errorf("users.info calls for failing ID = %d, want 1", c)
+	}
+
+	// Once the slow lookup finished it is served from the cache.
+	h.users.bg.Wait()
+	if rec = serve(h.UserHandler, "/api/user?user=USLOW"); rec.Code != http.StatusOK {
+		t.Errorf("after lookup finished: status %d", rec.Code)
+	}
+}
+
+func TestUserHandler_UnknownUserIs404AndNegativeCached(t *testing.T) {
+	sl := newFakeSlackUsers(0)
+	h, _ := newUserTestHandlers(t, false, sl)
+	for range 3 {
+		rec := serve(h.UserHandler, "/api/user?user=UNOPE")
+		if rec.Code != http.StatusNotFound || rec.Header().Get("Retry-After") != "" {
+			t.Errorf("unknown user: status %d, Retry-After %q", rec.Code, rec.Header().Get("Retry-After"))
+		}
+		h.users.bg.Wait()
+	}
+	if c := sl.callsFor("UNOPE"); c != 1 {
+		t.Errorf("users.info calls = %d, want 1", c)
 	}
 }
 
@@ -214,6 +263,38 @@ func TestTopUsersHandler_InlineNames(t *testing.T) {
 				t.Errorf("unresolvable user must omit name fields: %+v", unnamed)
 			}
 		})
+	}
+}
+
+// The ETag covers the inline names, and a revalidation (304) does not ask
+// Slack again for a user it could not resolve.
+func TestTopUsersHandler_ETagCoversNamesAndSparesSlack(t *testing.T) {
+	sl := newFakeSlackUsers(0)
+	h, store := newUserTestHandlers(t, false, sl)
+	seedNamedStats(t, store)
+	target := "/api/stats/top?" + todayRange()
+
+	first := serve(h.TopUsersHandler, target)
+	wantStatus(t, first, http.StatusOK)
+	etag := first.Header().Get("ETag")
+	if etag == "" || !strings.Contains(first.Body.String(), `"real_name":"Giver A"`) {
+		t.Fatalf("ETag %q, body %s", etag, first.Body.String())
+	}
+	h.users.bg.Wait()
+
+	for range 3 {
+		wantStatus(t, serve(h.TopUsersHandler, target, "If-None-Match", etag), http.StatusNotModified)
+	}
+	if c := sl.callsFor("UNONAME"); c != 1 {
+		t.Errorf("users.info calls for the unresolvable user = %d, want 1", c)
+	}
+
+	// A name that appears later changes the body and therefore the ETag.
+	if err := store.SetCachedUser("UNONAME", "Named Later", "img-n"); err != nil {
+		t.Fatal(err)
+	}
+	if rec := serve(h.TopUsersHandler, target, "If-None-Match", etag); rec.Code != http.StatusOK || rec.Header().Get("ETag") == etag {
+		t.Errorf("new name: status %d, ETag unchanged %v", rec.Code, rec.Header().Get("ETag") == etag)
 	}
 }
 

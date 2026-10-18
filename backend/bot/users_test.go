@@ -18,7 +18,8 @@ type fakeSlackUsers struct {
 	mu            sync.Mutex
 	users         map[string]slack.User
 	latency       time.Duration
-	rateLimitOnce map[string]bool
+	rateLimitOnce map[string]time.Duration // one-shot 429 with this Retry-After
+	fail          map[string]error         // permanent error for an ID
 	calls         map[string]int
 	active        int
 	maxActive     int
@@ -30,7 +31,8 @@ func newFakeSlackUsers(latency time.Duration) *fakeSlackUsers {
 	return &fakeSlackUsers{
 		users:         map[string]slack.User{},
 		latency:       latency,
-		rateLimitOnce: map[string]bool{},
+		rateLimitOnce: map[string]time.Duration{},
+		fail:          map[string]error{},
 		calls:         map[string]int{},
 	}
 }
@@ -50,8 +52,9 @@ func (f *fakeSlackUsers) GetUserInfoContext(ctx context.Context, user string, _ 
 	f.calls[user]++
 	f.active++
 	f.maxActive = max(f.maxActive, f.active)
-	limited := f.rateLimitOnce[user]
+	retryAfter, limited := f.rateLimitOnce[user]
 	delete(f.rateLimitOnce, user)
+	failErr := f.fail[user]
 	f.mu.Unlock()
 	defer func() {
 		f.mu.Lock()
@@ -60,7 +63,10 @@ func (f *fakeSlackUsers) GetUserInfoContext(ctx context.Context, user string, _ 
 	}()
 
 	if limited {
-		return nil, &slack.RateLimitedError{RetryAfter: 10 * time.Millisecond}
+		return nil, &slack.RateLimitedError{RetryAfter: retryAfter}
+	}
+	if failErr != nil {
+		return nil, failErr
 	}
 	select {
 	case <-time.After(f.latency):
@@ -71,7 +77,7 @@ func (f *fakeSlackUsers) GetUserInfoContext(ctx context.Context, user string, _ 
 	defer f.mu.Unlock()
 	u, ok := f.users[user]
 	if !ok {
-		return nil, errors.New("user_not_found")
+		return nil, slack.SlackErrorResponse{Err: "user_not_found"}
 	}
 	return &u, nil
 }
@@ -222,9 +228,9 @@ func TestResolve_DeactivatedUserKeepsCachedName(t *testing.T) {
 		t.Errorf("empty Slack name overwrote cache: %+v", u)
 	}
 
-	info, ok := r.ResolveOne(context.Background(), "UNEW", time.Second)
-	if !ok || info.RealName != "" || info.ProfileImage == "" {
-		t.Errorf("ResolveOne = %+v, %v; want Slack data with empty name", info, ok)
+	info, err := r.ResolveOne(context.Background(), "UNEW", time.Second)
+	if err != nil || info.RealName != "" || info.ProfileImage == "" {
+		t.Errorf("ResolveOne = %+v, %v; want Slack data with empty name", info, err)
 	}
 }
 
@@ -325,7 +331,7 @@ func TestResolve_RequestContextCancelled(t *testing.T) {
 func TestResolve_RetriesRateLimit(t *testing.T) {
 	sl := newFakeSlackUsers(0)
 	sl.add("URL", "Limited User")
-	sl.rateLimitOnce["URL"] = true
+	sl.rateLimitOnce["URL"] = 10 * time.Millisecond
 	r := NewUserResolver(nil, nil, sl, zerolog.Nop())
 	got := r.Resolve(context.Background(), []string{"URL"}, time.Second)
 	if got["URL"].RealName != "Limited User" {
@@ -356,8 +362,8 @@ func TestResolve_NilAndMissingLayers(t *testing.T) {
 	if got := nilResolver.Resolve(context.Background(), []string{"U1"}, time.Second); len(got) != 0 {
 		t.Errorf("nil resolver returned %v", got)
 	}
-	if _, ok := nilResolver.ResolveOne(context.Background(), "U1", time.Second); ok {
-		t.Error("nil resolver ResolveOne ok")
+	if _, err := nilResolver.ResolveOne(context.Background(), "U1", time.Second); !errors.Is(err, ErrUserNotFound) {
+		t.Errorf("nil resolver ResolveOne err = %v", err)
 	}
 	if n, err := nilResolver.Warm(context.Background()); n != 0 || err != nil {
 		t.Errorf("nil Warm = %d, %v", n, err)
