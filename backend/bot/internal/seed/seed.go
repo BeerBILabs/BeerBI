@@ -11,11 +11,12 @@ import (
 	"fmt"
 	"math"
 	"math/rand/v2"
+	"strconv"
 	"strings"
 	"time"
 )
 
-// BeersDDL is the schema of the beers table. It must match desiredCreate in
+// BeersDDL is the schema of the beers table. It must match beersCreate in
 // store.go (guarded by a test in the bot package). The bot's migrate() adds
 // all indexes on its next start.
 const BeersDDL = `CREATE TABLE IF NOT EXISTS beers (
@@ -142,9 +143,16 @@ func Generate(ctx context.Context, db *sql.DB, cfg Config) (Result, error) {
 		case p < 0.15:
 			count = 2
 		}
-		// Slack ts: seconds + 6-digit fraction; the fraction encodes the row
-		// number so (giver, recipient, ts) is unique by construction.
+		// Slack ts: seconds + fraction. The fraction encodes the row number
+		// (six digits, plus the millions as extra digits from row 1,000,000
+		// on), so (giver, recipient, ts) is unique within one Generate call.
+		// A second call with the same Config on the same table repeats the
+		// rows and fails on the UNIQUE constraint; cmd/seed refuses non-empty
+		// tables for that reason.
 		slackTs := fmt.Sprintf("%d.%06d", t.Unix(), i%1_000_000)
+		if i >= 1_000_000 {
+			slackTs += strconv.Itoa(i / 1_000_000)
+		}
 		tsRFC := t.UTC().Format(time.RFC3339)
 		if cfg.LegacyEvery > 0 && i%cfg.LegacyEvery == 0 {
 			tsRFC = t.UTC().Format(LegacyLayout)

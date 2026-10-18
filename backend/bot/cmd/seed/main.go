@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/BeerBILabs/BeerBI/bot/internal/seed"
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 func main() {
@@ -38,7 +38,7 @@ func main() {
 		log.Fatalf("create directory: %v", err)
 	}
 
-	db, err := sql.Open("sqlite3", *dbPath)
+	db, err := sql.Open("sqlite", *dbPath+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)")
 	if err != nil {
 		log.Fatalf("open db: %v", err)
 	}
@@ -46,6 +46,15 @@ func main() {
 
 	if _, err := db.Exec(seed.BeersDDL); err != nil {
 		log.Fatalf("create beers table: %v", err)
+	}
+	// Generate is deterministic: a second run would repeat rows and fail on
+	// UNIQUE(giver_id, recipient_id, ts) halfway through.
+	var existing int
+	if err := db.QueryRow(`SELECT COUNT(1) FROM beers`).Scan(&existing); err != nil {
+		log.Fatalf("count beers: %v", err)
+	}
+	if existing > 0 {
+		log.Fatalf("%s already contains %d beers; seed only an empty database (delete the file first)", *dbPath, existing)
 	}
 
 	started := time.Now()

@@ -1,12 +1,9 @@
 package main
 
 import (
-	"database/sql"
 	"os"
 	"testing"
 	"time"
-
-	_ "github.com/mattn/go-sqlite3"
 )
 
 func TestGetAllGiversAndRecipients(t *testing.T) {
@@ -19,7 +16,7 @@ func TestGetAllGiversAndRecipients(t *testing.T) {
 	_ = f.Close()
 	defer func() { _ = os.Remove(path) }()
 
-	db, err := sql.Open("sqlite3", path+"?_foreign_keys=1")
+	db, err := openDB(path)
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}

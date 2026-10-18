@@ -8,7 +8,7 @@ Monorepo for BeerBot — a Slack bot that tracks team appreciation through virtu
 
 | Component | Path | Tech Stack |
 |-----------|------|------------|
-| Backend | `backend/bot/` | Go 1.27, SQLite, Slack Socket Mode, zerolog |
+| Backend | `backend/bot/` | Go 1.27, SQLite (`modernc.org/sqlite`, pure Go, WAL), Slack Socket Mode, zerolog |
 | Frontend | `frontend/project/` | Next.js 16 (App Router), React 19, Tailwind 4, Recharts, Bun |
 
 ## Commands
@@ -23,17 +23,17 @@ just test             # Run all tests via Docker (compose.test.yaml)
 just dev-logs         # Tail all logs
 just dev-logs-backend # Backend logs only
 just dev-logs-frontend # Frontend logs only
-just seed             # Fill backend/bot/data/bot.db with synthetic data (ROWS=200000)
-just bench            # Backend query benchmarks (BEERBI_BENCH_ROWS=1000000)
+just seed [rows=200000]   # Fill an empty backend/bot/data/bot.db with synthetic data
+just bench [rows=1000000] # Backend query benchmarks on a seeded temp DB
 just shell-backend    # Shell into backend container
 just shell-frontend   # Shell into frontend container
 just status           # Show running services
 just clean            # Remove containers and volumes
 ```
 
-Run backend tests locally (outside Docker):
+Run backend tests locally (outside Docker; the SQLite driver is pure Go, no C toolchain needed):
 ```bash
-cd backend/bot && go test ./...
+cd backend/bot && CGO_ENABLED=0 go test ./...
 ```
 
 ## Architecture
@@ -56,6 +56,7 @@ The frontend never talks to the backend directly from the browser. All requests 
 ### Backend (`backend/bot/`)
 
 Single Go binary with these layers:
+- **db.go** — `openDB()`: SQLite connection settings (WAL, `busy_timeout`, `synchronous=NORMAL`, pool size, `BEGIN IMMEDIATE`)
 - **main.go** — HTTP server setup, Slack Socket Mode connection, route registration, graceful shutdown
 - **events.go** — `EventProcessor`: beer emoji detection, mention parsing (`<@([A-Z0-9]+)>`), daily limit enforcement (default 10/user/day), self-gift prevention
 - **store.go** — SQLite database: schema migrations in `migrate()`, all queries. Tables: `beers`, `processed_events`, `user_cache`, `emoji_counts`
@@ -107,6 +108,7 @@ ok, err := store.TryMarkEventProcessed(eventID, ts)
 if !ok { return } // Already processed
 // Now safe to process
 ```
+`processed_events` only needs to cover Slack's redelivery window (minutes). Records older than 30 days are pruned daily (`RunProcessedEventsPruner`), so dedup only applies to events redelivered within that window.
 
 ### User Caching (two layers)
 - **Backend:** `user_cache` SQLite table — survives restarts, allows showing deactivated Slack users
@@ -114,6 +116,9 @@ if !ok { return } // Already processed
 
 ### Database Migrations
 `store.go` → `migrate()` runs on startup. Schema changes must be additive/non-destructive and added to the migration function. Every step is idempotent: create/upgrade tables (a legacy `beers` table without `UNIQUE` is rebuilt in one transaction), drop obsolete indexes, run versioned data steps gated by `PRAGMA user_version` (v1: normalise `beers.ts_rfc` to RFC3339 UTC, logs `rows_changed`), create the indexes listed in `storeIndexes`, then `ANALYZE` if indexes were created or statistics are missing.
+
+### SQLite Connection
+Always open the database with `openDB()` (`db.go`), also in tests (`openTestDB`/`newTestStore`). It sets WAL, `busy_timeout=5000`, `synchronous=NORMAL`, a 16 MB page cache and `_txlock=immediate` on every pool connection and limits the pool to 4 connections. Writers serialise through `BEGIN IMMEDIATE` + `busy_timeout`, readers run in parallel. `PRAGMA optimize=0x10002` (bounded by `analysis_limit=1000`) runs at startup, hourly and on `store.Close()`, so statistics taken on a small table are refreshed once it grows. WAL creates `bot.db-wal` and `bot.db-shm` next to the database: back up all three with the bot stopped, or use `sqlite3 bot.db ".backup copy.db"` (see `DOCKER.md`).
 
 ### Date Filters
 All date filters on `beers` are half-open ranges `ts_rfc >= ? AND ts_rfc < ?` built by `dateBounds(start, end)` (inclusive calendar days; the upper bound is the bare date of the day after `end`) or `yearBounds`. Never wrap `ts_rfc` in a function in a `WHERE` clause: it disables the indexes. `store_plan_test.go` fails if a date-bounded query does not `SEARCH` an index. New date-bounded queries go into the query constants in `store.go` and into `planQueries()` in that test.
@@ -149,10 +154,11 @@ Components fetch via `/api/proxy/{endpoint}`. The `Leaderboard.tsx` component us
 - ESLint 10 (flat config `frontend/project/eslint.config.mjs`) runs with `--max-warnings 0`: typescript-eslint recommended, `@next/eslint-plugin-next` core-web-vitals and `eslint-plugin-react-hooks` recommended (rules-of-hooks, exhaustive-deps and the React Compiler rules such as `set-state-in-effect`). Fix findings instead of disabling them; a disable needs a reason (`// TODO(owner): ...`). `eslint-config-next` is deliberately not used.
 - TypeScript runs in two versions, as recommended for TS 7: `bun run typecheck` uses TypeScript 7 (`@typescript/native`, the native `tsc`), while the `typescript` package is aliased to `@typescript/typescript6` because Next's build-time type check and typescript-eslint need the TS 6 JavaScript API. Re-resolving the lockfile needs Bun >= 1.4 (older Bun mis-resolves the nested `npm:` alias). Drop the alias once TS 7.1 ships its API and the tools support it.
 - Benchmarks: `bench_test.go` runs the analytics queries against a seeded database (`internal/seed`, 500 fake users, 6 years). `go test -run '^$' -bench . -benchmem ./...`; `BEERBI_BENCH_ROWS` sets the size (default 1,000,000, 20,000 with `-short`). Record before/after numbers in the PR when touching queries, indexes or the driver.
-- Seed a dev database: `just seed` (or `go run ./cmd/seed -db data/bot.db -rows 200000` in `backend/bot`). It only creates the `beers` table; the bot adds indexes on its next start. All user IDs are fake (`U000000` …).
-- Coverage minimums are the env vars `BACKEND_COVERAGE_THRESHOLD` and `FRONTEND_COVERAGE_THRESHOLD` at the top of `ci.yml` (the frontend value is also the default in `vitest.config.ts`). Raise them when tests are added.
+- Seed a dev database: `just seed` (or `go run ./cmd/seed -db data/bot.db -rows 200000` in `backend/bot`). It refuses a database that already has beers (a second run would repeat the deterministic rows and hit the UNIQUE constraint). It only creates the `beers` table; the bot adds indexes on its next start. All user IDs are fake (`U000000` …).
+- Coverage minimums are the env vars `BACKEND_COVERAGE_THRESHOLD` (statement coverage of the `bot` package only; `internal/seed` and `cmd/seed` are excluded) and `FRONTEND_COVERAGE_THRESHOLD` at the top of `ci.yml` (the frontend value is also the default in `vitest.config.ts`). Raise them when tests are added.
 - Do not use `docker compose -f compose.test.yaml up --abort-on-container-exit`: the first service to finish stops the other. Use `just test`.
-- Without `just`: `docker compose -f compose.test.yaml run --build --rm backend-test` and `... frontend-test`. Host Go cannot link CGO (sqlite3) on the maintainer's Mac, so run Go inside Docker.
+- Without `just`: `docker compose -f compose.test.yaml run --build --rm backend-test` and `... frontend-test`.
+- The backend builds without CGO (`modernc.org/sqlite`). Only `go test -race` needs CGO on Linux (the `test` stage of `docker/backend/Dockerfile` installs `build-base` for it); on macOS `CGO_ENABLED=0 go test -race ./...` works with host Go.
 
 ## Guidelines
 

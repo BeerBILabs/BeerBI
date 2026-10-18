@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -77,15 +78,68 @@ func TestQueryPlans_FreshDB(t *testing.T) {
 	assertSearchPlans(t, newTestStore(t), false)
 }
 
-// With statistics from a realistic data set (ANALYZE after the migration),
-// the planner must still prefer the range search.
+// With statistics from a realistic data set the planner must still prefer the
+// range search. The statistics come from the production path: no stats yet,
+// so the next start (NewSQLiteStore) runs ANALYZE with analysis_limit.
 func TestQueryPlans_SeededAndAnalyzed(t *testing.T) {
 	s := newTestStore(t)
 	if _, err := seed.Generate(context.Background(), s.db, seed.Config{Rows: 20_000, Seed: 7}); err != nil {
 		t.Fatalf("seed: %v", err)
 	}
+	if _, err := s.db.Exec(`DELETE FROM sqlite_stat1`); err != nil {
+		t.Fatal(err)
+	}
+	s, err := NewSQLiteStore(s.db)
+	if err != nil {
+		t.Fatalf("restart: %v", err)
+	}
+	if n := statRows(t, s, "idx_beers_ts_count"); n < 10_000 {
+		t.Errorf("idx_beers_ts_count stat rows = %d, want the seeded size", n)
+	}
+	assertSearchPlans(t, s, true)
+}
+
+// Regression: statistics taken while the table was small must not freeze.
+// The next start (PRAGMA optimize=0x10002 in NewSQLiteStore) refreshes them
+// once the table has grown.
+func TestQueryPlans_StatsRefreshAfterGrowth(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := seed.Generate(context.Background(), s.db, seed.Config{Rows: 50, Users: 20, Seed: 3}); err != nil {
+		t.Fatalf("seed small: %v", err)
+	}
 	if _, err := s.db.Exec(`ANALYZE`); err != nil {
 		t.Fatal(err)
 	}
+	if n := statRows(t, s, "idx_beers_ts_count"); n > 100 {
+		t.Fatalf("small stat rows = %d, want about 50", n)
+	}
+	if _, err := seed.Generate(context.Background(), s.db, seed.Config{Rows: 20_000, Seed: 4, Start: day("2018-01-01"), End: day("2020-01-01")}); err != nil {
+		t.Fatalf("seed large: %v", err)
+	}
+	s, err := NewSQLiteStore(s.db)
+	if err != nil {
+		t.Fatalf("restart: %v", err)
+	}
+	if n := statRows(t, s, "idx_beers_ts_count"); n < 10_000 {
+		t.Errorf("stat rows after growth = %d, want the grown size (stale statistics)", n)
+	}
 	assertSearchPlans(t, s, true)
+}
+
+// statRows returns the row count sqlite_stat1 records for index idx.
+func statRows(t *testing.T, s *SQLiteStore, idx string) int {
+	t.Helper()
+	var stat string
+	if err := s.db.QueryRow(`SELECT stat FROM sqlite_stat1 WHERE idx = ?`, idx).Scan(&stat); err != nil {
+		t.Fatalf("read sqlite_stat1 for %s: %v", idx, err)
+	}
+	fields := strings.Fields(stat)
+	if len(fields) == 0 {
+		t.Fatalf("empty sqlite_stat1 entry for %s", idx)
+	}
+	n, err := strconv.Atoi(fields[0])
+	if err != nil {
+		t.Fatalf("parse stat %q: %v", stat, err)
+	}
+	return n
 }

@@ -27,6 +27,9 @@
 # Bot-specific data
 backend/bot/data/
 backend/bot/*.db
+backend/bot/*.db-wal
+backend/bot/*.db-shm
+backend/bot/*.db-journal
 backend/bot/*.sqlite
 backend/bot/testdata/
 backend/bot/.env

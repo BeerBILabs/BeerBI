@@ -1,9 +1,12 @@
 # Step 1: Build the application
-FROM golang:1.27-alpine AS builder
+# Pure Go (modernc.org/sqlite, CGO_ENABLED=0): the builder runs on the build
+# platform and cross-compiles for the target, so multi-arch images need no QEMU
+# and no C toolchain.
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS builder
+ARG TARGETOS
+ARG TARGETARCH
 WORKDIR /src
-
-# Install build dependencies
-RUN apk add --no-cache git build-base
+ENV CGO_ENABLED=0
 
 # Copy dependency information and download dependencies
 COPY go.mod go.sum ./
@@ -13,12 +16,14 @@ RUN go mod download
 COPY . .
 
 # Build the application
-RUN go build -o /bin/bot ./
+RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /bin/bot ./
 
 # Test stage: used by compose.test.yaml (`just test`), never part of the final image.
 # gofmt, go vet and go test run when the container starts, so a failure makes it exit non-zero.
-# -race needs CGO (build-base is installed in the builder stage) and works on musl.
+# Only the race detector needs CGO on Linux, so build-base is installed here and nowhere else.
 FROM builder AS test
+RUN apk add --no-cache build-base
+ENV CGO_ENABLED=1
 CMD ["sh", "-c", "test -z \"$(gofmt -l .)\" || { echo 'gofmt needed:'; gofmt -l .; exit 1; }; go vet ./... && go test -race -cover ./..."]
 
 # Step 2: Create the final image

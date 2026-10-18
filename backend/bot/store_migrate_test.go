@@ -115,6 +115,48 @@ func TestMigrate_Idempotent(t *testing.T) {
 	}
 }
 
+// A legacy row with neither ts_rfc nor a numeric Slack ts must not abort the
+// rebuild (ts_rfc is NOT NULL) and must not be dropped; it gets the explicit
+// fallback instead of a value derived from CAST('...' AS INTEGER).
+func TestMigrate_RebuildLegacyNonNumericTs(t *testing.T) {
+	db, err := openTestDB(filepath.Join(t.TempDir(), "legacy-ts.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	for _, st := range []string{
+		`CREATE TABLE beers (id INTEGER PRIMARY KEY AUTOINCREMENT, giver_id TEXT NOT NULL, recipient_id TEXT NOT NULL, ts TEXT NOT NULL)`,
+		`INSERT INTO beers (giver_id, recipient_id, ts) VALUES ('U1', 'U2', 'not-a-ts')`,
+		`INSERT INTO beers (giver_id, recipient_id, ts) VALUES ('U1', 'U2', '1704067200.000100')`,
+	} {
+		if _, err := db.Exec(st); err != nil {
+			t.Fatalf("legacy setup %q: %v", st, err)
+		}
+	}
+	if _, err := NewSQLiteStore(db); err != nil {
+		t.Fatalf("migrate legacy: %v", err)
+	}
+	got := map[string]string{}
+	rows, err := db.Query(`SELECT ts, CAST(ts_rfc AS TEXT) FROM beers`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var ts, rfc string
+		if err := rows.Scan(&ts, &rfc); err != nil {
+			t.Fatal(err)
+		}
+		got[ts] = rfc
+	}
+	want := map[string]string{"not-a-ts": legacyFallbackTs, "1704067200.000100": "2024-01-01T00:00:00Z"}
+	for ts, w := range want {
+		if got[ts] != w {
+			t.Errorf("ts %q: ts_rfc = %q, want %q", ts, got[ts], w)
+		}
+	}
+}
+
 // A database from before the UNIQUE constraint: one row per beer, no ts_rfc,
 // no count. The rebuild must aggregate duplicates and keep every beer.
 func TestMigrate_RebuildsLegacyTableKeepingCounts(t *testing.T) {

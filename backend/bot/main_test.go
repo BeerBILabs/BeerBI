@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/rs/zerolog"
 	zlog "github.com/rs/zerolog/log"
 )
@@ -19,9 +18,9 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// openTestDB opens a SQLite file the same way the tests have always done.
+// openTestDB opens a SQLite file with the production settings (openDB).
 func openTestDB(path string) (*sql.DB, error) {
-	return sql.Open("sqlite3", path+"?_foreign_keys=1")
+	return openDB(path)
 }
 
 // newTestStore returns a migrated store on a fresh file in t.TempDir().

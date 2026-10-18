@@ -1,18 +1,15 @@
 package main
 
 import (
-	"database/sql"
 	"fmt"
 	"path/filepath"
 	"testing"
 	"time"
-
-	_ "github.com/mattn/go-sqlite3"
 )
 
 func TestSQLiteStore_IncGet(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test.db")
-	db, err := sql.Open("sqlite3", dbPath+"?_foreign_keys=1")
+	db, err := openDB(dbPath)
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
@@ -47,7 +44,7 @@ func TestSQLiteStore_IncGet(t *testing.T) {
 
 func TestSQLiteStore_Beers(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "test_beers.db")
-	db, err := sql.Open("sqlite3", dbPath+"?_foreign_keys=1")
+	db, err := openDB(dbPath)
 	if err != nil {
 		t.Fatalf("open db: %v", err)
 	}
