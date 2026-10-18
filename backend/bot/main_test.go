@@ -37,3 +37,18 @@ func newTestStore(t testing.TB) *SQLiteStore {
 	}
 	return s
 }
+
+func TestParseLogLevel(t *testing.T) {
+	cases := map[string]zerolog.Level{
+		"":         zerolog.InfoLevel, // unset LOG_LEVEL must not silence the logger
+		"nonsense": zerolog.InfoLevel,
+		"debug":    zerolog.DebugLevel,
+		"warn":     zerolog.WarnLevel,
+		"error":    zerolog.ErrorLevel,
+	}
+	for in, want := range cases {
+		if got := parseLogLevel(in); got != want {
+			t.Errorf("parseLogLevel(%q) = %v, want %v", in, got, want)
+		}
+	}
+}

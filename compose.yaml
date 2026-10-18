@@ -14,7 +14,7 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - PORT=8080
+      - ADDR=:8080
       - DB_PATH=/data/bot.db
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/api/health"]
@@ -42,7 +42,8 @@ services:
       - "3000:3000"
     environment:
       - BACKEND_BASE=http://backend:8080
-      - API_TOKEN=my-secret-token
+      # Same token as the backend, taken from .env (compose reads it for interpolation).
+      - API_TOKEN=${API_TOKEN:-}
     depends_on:
       backend:
         condition: service_healthy

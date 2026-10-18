@@ -15,7 +15,7 @@ services:
     ports:
       - "8080:8080"
     environment:
-      - PORT=8080
+      - ADDR=:8080
       - DB_PATH=/data/bot.db
     networks:
       - beerbot
@@ -30,7 +30,8 @@ services:
     environment:
       - HOSTNAME=0.0.0.0
       - BACKEND_BASE=http://backend-dev:8080
-      - API_TOKEN=my-secret-token
+      # Same token as the backend, taken from .env (compose reads it for interpolation).
+      - API_TOKEN=${API_TOKEN:-}
     volumes:
       - ./frontend/project:/app/beerbot
     depends_on:

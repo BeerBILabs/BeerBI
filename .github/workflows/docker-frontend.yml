@@ -16,9 +16,9 @@ jobs:
   build-and-push:
     needs: ci
     runs-on: ubuntu-latest
+    # Docker Hub only: no GitHub Packages access needed.
     permissions:
       contents: read
-      packages: write
 
     steps:
       - name: Checkout repository
@@ -54,7 +54,7 @@ jobs:
           tags: |
             type=ref,event=branch
             type=ref,event=pr
-            type=sha,prefix=sha-{{branch}}-
+            type=sha
             type=semver,pattern={{version}},value=${{ steps.version.outputs.version }},enable=${{ steps.version.outputs.is_release == 'true' }}
             type=semver,pattern={{major}}.{{minor}},value=${{ steps.version.outputs.version }},enable=${{ steps.version.outputs.is_release == 'true' }}
             type=semver,pattern={{major}},value=${{ steps.version.outputs.version }},enable=${{ steps.version.outputs.is_release == 'true' }}
@@ -88,5 +88,5 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Pull command:**" >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY

@@ -7,7 +7,7 @@ Next.js dashboard for BeerBot analytics and team appreciation insights.
 - **Framework**: Next.js 16 with App Router (`output: 'standalone'`)
 - **Language**: TypeScript (strict mode; type-checked with TypeScript 7)
 - **Styling**: Tailwind CSS 4.x
-- **Runtime**: Bun (recommended) or Node.js 18+
+- **Runtime**: Bun 1.4+ (the Docker image runs the standalone `server.js` with Bun); Next.js 16 itself needs Node.js 20.9+ if you use Node
 - **Deployment**: Docker
 
 ## Quick Start
@@ -18,7 +18,7 @@ See [root README](../README.md) for full setup instructions.
 
 | Variable                   | Required | Default                 | Description              |
 |----------------------------|----------|-------------------------|--------------------------|
-| `BACKEND_BASE` | ✅ | `http://localhost:8080` | Backend URL, read at runtime by the Next.js server (proxy and `/api/leaderboard`); never sent to the browser |
+| `BACKEND_BASE` | ✅ | `http://localhost:8080` | Backend URL, read at runtime by the Next.js server (proxy and `/api/leaderboard`); never sent to the browser. Replaces `NEXT_PUBLIC_BACKEND_BASE`, which is no longer read |
 | `API_TOKEN` | ✅ | - | Bearer token for the backend API; server-side only, the browser never sees it |
 
 ## Data flow
@@ -55,4 +55,7 @@ bun install --frozen-lockfile
 bun run test            # Vitest (TZ is forced to Europe/Berlin)
 bun run test:coverage   # with coverage and threshold
 bun run typecheck && bun run lint   # ESLint 10, warnings fail the run
+bun run build           # must list / and /analytics as ○ (Static)
 ```
+
+`just test-frontend` runs lint, typecheck, Vitest and the build in Docker.

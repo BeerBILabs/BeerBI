@@ -93,10 +93,11 @@ Stats responses carry an `ETag` and `Cache-Control: private, max-age=3600` when 
 
 ### Frontend (`frontend/project/`)
 
-Three main pages:
-- `/` — Leaderboard (`UsersPage.tsx` → `Leaderboard.tsx`) with date range filters
+Two pages:
+- `/` — Leaderboard (`UsersPage.tsx` → `Leaderboard.tsx`) with date range filters, next to the quarterly rankings with rank change indicators (`QuarterlyRankingsPanel.tsx`, quarter tabs and year selector)
 - `/analytics` — Dashboard with timeline, top users, heatmap, network graph, quarterly charts
-- `/rankings` / `/rankings/all` / `/rankings/[year]/[quarter]` — Quarterly rankings with rank change indicators
+
+The former `/rankings` routes no longer exist; the rankings live on `/`.
 
 Chart components live in `components/charts/`. Shared utilities in `lib/` (userCache, quarters, chartTheme).
 
@@ -135,7 +136,7 @@ Always open the database with `openDB()` (`db.go`), also in tests (`openTestDB`/
 All date filters on `beers` are half-open ranges `ts_rfc >= ? AND ts_rfc < ?` built by `dateBounds(start, end)` (inclusive calendar days; the upper bound is the bare date of the day after `end`) or `yearBounds`. Never wrap `ts_rfc` in a function in a `WHERE` clause: it disables the indexes. `store_plan_test.go` fails if a date-bounded query does not `SEARCH` an index. New date-bounded queries go into the query constants in `store.go` and into `planQueries()` in that test.
 
 ### Frontend Data Fetching
-Components fetch via `/api/proxy/{endpoint}`; `Leaderboard.tsx` uses `/api/leaderboard` (one request per leaderboard, so the first paint of `/` makes two). Requests that depend on changing input go through `useLatestRequest` (`lib/useLatestRequest.ts`): the previous result stays visible (dimmed, `aria-busy`) while the next one loads and superseded requests are aborted; `useAnalyticsData` builds on it, so the analytics charts stay mounted on range changes.
+Components fetch via `/api/proxy/{endpoint}`; `Leaderboard.tsx` uses `/api/leaderboard` (one request per leaderboard, so the first paint of `/` makes two; `app/__tests__/home-requests.test.tsx` fails if it makes more or asks `/users` while the names are inline). Requests that depend on changing input go through `useLatestRequest` (`lib/useLatestRequest.ts`): the previous result stays visible (dimmed, `aria-busy`) while the next one loads and superseded requests are aborted; `useAnalyticsData` builds on it, so the analytics charts stay mounted on range changes.
 
 User names: `resolveUsers` (`lib/userNames.ts`) takes names from the stats response when the backend sends them inline (B6.4, `backend/bot/stats_names.go`) and only looks up the remaining IDs through `userDataManager`. Fields (`lib/statsTypes.ts`, `omitempty` on the backend): `real_name` and `profile_image` on each `/stats/top` row (and `top_givers`/`top_recipients` of `/stats/combined`), `giver_name`/`giver_image`/`recipient_name`/`recipient_image` on each `/stats/pairs` row. A missing name means "not resolved" and the frontend falls back to `/api/users?ids=`; a name without an image field means "no avatar" (stored as `profile_image: null`). Failed lookups are not cached in the frontend: a 404 or a 503 from `/api/user` (Slack still resolving, `Retry-After`) is asked again on the next call. Charts label new rows from inline or cached names right away (`knownUserNames`) while `resolveUsers` runs.
 
@@ -145,18 +146,21 @@ Prerendered pages: `/` and `/analytics` are built once at build time, so nothing
 
 ## Environment Variables
 
-**Backend (via `.env`):**
-- `BOT_TOKEN` — Slack Bot User OAuth Token
-- `APP_TOKEN` — Slack App-Level Token (needs `connections:write`)
-- `API_TOKEN` — Bearer token for REST API auth
-- `DB_PATH` — SQLite database path (default: `/data/bot.db`)
+**Backend (via `.env`; every variable also has a flag, see `main.go`):**
+- `BOT_TOKEN` — Slack Bot User OAuth Token (required)
+- `APP_TOKEN` — Slack App-Level Token, needs `connections:write` (required)
+- `CHANNEL` — Slack channel ID to monitor (required; the bot exits at startup without it)
+- `API_TOKEN` — Bearer token for REST API auth (without it every authenticated endpoint answers 401)
+- `DB_PATH` — SQLite database path (`/data/bot.db` in the Docker image and the compose files)
+- `ADDR` — HTTP listen address (default: `:8080`; there is no `PORT` variable)
+- `REDIS_ADDR` — Redis address (default: `cache:6379`; without Redis the bot runs on SQLite alone)
+- `EMOJI` — tracked emoji (default: `:beer:`), `MAX_PER_DAY` — beers per giver per day (default: `10`), `LOG_LEVEL` — zerolog level (default: `info`)
 - `PROCESSED_EVENTS_RETENTION_DAYS` — days to keep `processed_events` dedup records (default: `30`, whole days from 1 to 3650; flag `-processed-events-retention-days` overrides it; an invalid value stops the bot at startup)
-- `PORT` — HTTP server port (default: `8080`)
 - `EVENT_WORKERS` — workers that process beer messages in parallel (default: `4`, `0` = inline on the event loop)
 
-**Frontend (via compose):**
-- `BACKEND_BASE` — Backend URL (e.g., `http://backend-dev:8080`), read at runtime by the Next.js server only
-- `API_TOKEN` — Token for backend API calls (server-side only, no `NEXT_PUBLIC_` prefix)
+**Frontend (via compose, read at runtime by the Next.js server):**
+- `BACKEND_BASE` — Backend URL (e.g., `http://backend-dev:8080`; default `http://localhost:8080`). Renamed from `NEXT_PUBLIC_BACKEND_BASE` in 2.0; the old name is no longer read.
+- `API_TOKEN` — Token for backend API calls (server-side only, no `NEXT_PUBLIC_` prefix). The compose files take it from `.env`, so frontend and backend share one value.
 
 ## Testing
 
@@ -168,7 +172,7 @@ Prerendered pages: `/` and `/analytics` are built once at build time, so nothing
 | CI | `.github/workflows/ci.yml` | Same checks plus `golangci-lint` and coverage thresholds; runs on push to `main`, pull requests and (via `workflow_call`) before the tag-triggered Docker builds |
 
 - Backend tests use `t.TempDir()` for SQLite files. Test files are `backend/bot/*_test.go`. Lint config: `backend/bot/.golangci.yml`.
-- Frontend tests live next to the code in `__tests__/` folders (`lib/__tests__`, `components/__tests__`, `app/api/__tests__`) and use Vitest, jsdom and Testing Library. Route handler tests run in the Node environment (`// @vitest-environment node` at the top of the file) and stub `fetch` and the env (`vi.stubEnv('BACKEND_BASE', …)`). Config: `frontend/project/vitest.config.ts`. `TZ=Europe/Berlin` is forced for every run (`test/global-setup.ts`) so timezone bugs also fail on UTC runners; never format dates with `toISOString()`, use `formatLocalDate` from `lib/dateUtils.ts`.
+- Frontend tests live next to the code in `__tests__/` folders (`lib/__tests__`, `components/__tests__`, `app/__tests__`, `app/api/__tests__`) and use Vitest, jsdom and Testing Library. Route handler tests run in the Node environment (`// @vitest-environment node` at the top of the file) and stub `fetch` and the env (`vi.stubEnv('BACKEND_BASE', …)`). Config: `frontend/project/vitest.config.ts`. `TZ=Europe/Berlin` is forced for every run (`test/global-setup.ts`) so timezone bugs also fail on UTC runners; never format dates with `toISOString()`, use `formatLocalDate` from `lib/dateUtils.ts`.
 - `tsconfig.json` has `"strict": true`; keep it that way (no `any` to silence errors, no `@ts-ignore`).
 - ESLint 10 (flat config `frontend/project/eslint.config.mjs`) runs with `--max-warnings 0`: typescript-eslint recommended, `@next/eslint-plugin-next` core-web-vitals and `eslint-plugin-react-hooks` recommended (rules-of-hooks, exhaustive-deps and the React Compiler rules such as `set-state-in-effect`). Fix findings instead of disabling them; a disable needs a reason (`// TODO(owner): ...`). `eslint-config-next` is deliberately not used.
 - TypeScript runs in two versions, as recommended for TS 7: `bun run typecheck` uses TypeScript 7 (`@typescript/native`, the native `tsc`), while the `typescript` package is aliased to `@typescript/typescript6` because Next's build-time type check and typescript-eslint need the TS 6 JavaScript API. Re-resolving the lockfile needs Bun >= 1.4 (older Bun mis-resolves the nested `npm:` alias). Drop the alias once TS 7.1 ships its API and the tools support it.
@@ -178,6 +182,11 @@ Prerendered pages: `/` and `/analytics` are built once at build time, so nothing
 - Do not use `docker compose -f compose.test.yaml up --abort-on-container-exit`: the first service to finish stops the other. Use `just test`.
 - Without `just`: `docker compose -f compose.test.yaml run --build --rm backend-test` and `... frontend-test`.
 - The backend builds without CGO (`modernc.org/sqlite`). Only `go test -race` needs CGO on Linux (the `test` stage of `docker/backend/Dockerfile` installs `build-base` for it); on macOS `CGO_ENABLED=0 go test -race ./...` works with host Go.
+
+## Releases and dependencies
+
+- Tags `backend-vX.Y.Z` and `frontend-vX.Y.Z` start `docker-backend.yml` / `docker-frontend.yml`: they run `ci.yml` first (`workflow_call`), then build `linux/amd64` and `linux/arm64` and push `beerbilabs/beerbi-backend` / `beerbilabs/beerbi-frontend` to Docker Hub as `X.Y.Z`, `X.Y`, `X` and `latest`. Breaking API or ENV changes need a major version and an upgrade note in the release.
+- `.github/dependabot.yml` opens weekly PRs for Go modules, Bun packages, Docker base images, compose images and GitHub Actions; minor and patch updates are grouped per ecosystem, majors come as single PRs.
 
 ## Guidelines
 

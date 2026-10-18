@@ -6,7 +6,7 @@ This guide covers deploying BeerBot using Docker and Docker Hub images.
 
 ### Using Docker Compose
 
-Please check the [justfile](justfile) for the latest deployment instructions.
+`compose.yaml` builds both images from source (`just prod`). To run the published images instead, replace the two `build:` blocks with `image: beerbilabs/beerbi-backend:2` and `image: beerbilabs/beerbi-frontend:2`. Put `BOT_TOKEN`, `APP_TOKEN`, `CHANNEL` and `API_TOKEN` into `.env` next to `compose.yaml`; the frontend takes the same `API_TOKEN` from there. See the [justfile](justfile) for all commands.
 
 ## 📦 Docker Hub Images
 
@@ -58,25 +58,24 @@ The backend is pure Go (`CGO_ENABLED=0`, SQLite via `modernc.org/sqlite`): its b
 
 The backend runs SQLite in WAL mode. Next to `/data/bot.db` you will see `bot.db-wal` and `bot.db-shm`; they belong to the database. Back up the whole `/data` volume with the container stopped, or take an online copy with the `sqlite3` CLI (not included in the image), e.g. `sqlite3 bot.db ".backup backup.db"` in the volume directory. Copying only `bot.db` while the bot runs can miss the latest commits.
 
+### Upgrading
+
+Back up the database (all of `/data`, see above) before deploying a new backend version: migrations run at startup. 2.0 rewrites `beers.ts_rfc` in existing rows to RFC3339 UTC once, in one transaction, and logs `rows_changed`.
+
 ### Graceful shutdown
 
 On `SIGTERM` the backend stops reading Slack events, finishes the queued beer messages (`EVENT_WORKERS`), drains open HTTP requests and then closes the database, within 15 seconds in total. Docker sends `SIGKILL` after 10 seconds by default, so give the container more time: `stop_grace_period: 20s` in Compose (set in `compose.yaml` and `compose.dev.yaml`) or `docker stop -t 20` / `docker run --stop-timeout 20`.
 
 ### Tagging Strategy
 
-**Backend:**
+Git tags `backend-vX.Y.Z` and `frontend-vX.Y.Z` publish the image tags `X.Y.Z`, `X.Y`, `X` and `latest` (no `v` prefix), plus `sha-<commit>`:
 
 ```bash
-beerbilabs/beerbi-backend:v1.0.0
+docker pull beerbilabs/beerbi-backend:2.0.0
+docker pull beerbilabs/beerbi-frontend:2
 ```
 
-**Frontend:**
-
-```bash
-beerbilabs/beerbi-frontend:v1.0.0
-```
-
-The project uses semantic versioning.
+The project uses semantic versioning; a major version marks breaking API or ENV changes.
 
 ## 🐳 Usage
 
@@ -92,10 +91,14 @@ See [justfile](justfile) for the latest deployment instructions.
 |---------------|----------|----------|--------------------------------|
 | `BOT_TOKEN`   | ✅       | -        | Slack Bot User OAuth Token     |
 | `APP_TOKEN`   | ✅       | -        | Slack App-Level Token          |
+| `CHANNEL`     | ✅       | -        | Channel ID to monitor (the bot exits at startup without it) |
 | `API_TOKEN`   | ✅       | -        | Bearer token for REST API      |
-| `CHANNEL`     | ❌       | -        | Specific channel ID to monitor |
+| `DB_PATH`     | ❌       | `/data/bot.db` | SQLite database path (keep it on the `/data` volume) |
+| `ADDR`        | ❌       | `:8080`  | HTTP listen address            |
+| `REDIS_ADDR`  | ❌       | `cache:6379` | Redis address; without Redis the bot runs on SQLite alone |
 | `EMOJI`       | ❌       | `:beer:` | Emoji to track                 |
 | `MAX_PER_DAY` | ❌       | `10`     | Maximum beers per user per day |
+| `LOG_LEVEL`   | ❌       | `info`   | zerolog level                  |
 | `PROCESSED_EVENTS_RETENTION_DAYS` | ❌ | `30` | Days to keep Slack event deduplication records (`processed_events`); whole days from 1 to 3650, pruned daily |
 | `EVENT_WORKERS` | ❌     | `4`      | Parallel workers for beer messages (`0` = inline) |
 
@@ -107,8 +110,10 @@ See [justfile](justfile) for the latest deployment instructions.
 
 | Variable                   | Required | Default                 | Description                    |
 |----------------------------|----------|-------------------------|--------------------------------|
-| `BACKEND_BASE` | ✅ | `http://localhost:8080` | Backend URL, read at runtime by the Next.js server (proxy and `/api/leaderboard`); never sent to the browser |
+| `BACKEND_BASE` | ✅ | `http://localhost:8080` | Backend URL, read at runtime by the Next.js server (proxy and `/api/leaderboard`); never sent to the browser. Replaces `NEXT_PUBLIC_BACKEND_BASE` (not read since 2.0) |
 | `API_TOKEN` | ✅ | - | Bearer token for the backend API; server-side only, the browser never sees it |
+
+`BACKEND_BASE` is a runtime setting: one frontend image works with any backend URL, there is no build argument.
 
 ### Full Stack Deployment
 
@@ -118,7 +123,8 @@ See [justfile](justfile) for the latest deployment instructions.
 
 ### Triggers
 
-- **Push tags**: Builds semantic version tags (e.g., `v1.0.0`, `v1.0`, `v1`)
+- **Push tags** `backend-vX.Y.Z` / `frontend-vX.Y.Z`: runs the CI workflow (tests, lint, coverage), then builds and pushes `X.Y.Z`, `X.Y`, `X`, `latest` for `linux/amd64` and `linux/arm64`
+- **Manual run** (`workflow_dispatch`): builds and pushes the selected branch as `<branch>` and `sha-<commit>` (`latest` too when run on `main`)
 
 ## 🔍 Monitoring
 
@@ -142,7 +148,7 @@ See [justfile](justfile) for the latest deployment instructions.
 - ✅ Multi-platform builds for compatibility
 - ✅ Secure credential management via GitHub Secrets
 - ✅ Build cache optimization
-- ✅ Only pushes on tags
+- ✅ Only pushes on release tags or a manual run, after CI passed
 - ✅ Vulnerability scanning available on Docker Hub
 
 ### Secrets Management

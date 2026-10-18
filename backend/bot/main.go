@@ -69,11 +69,7 @@ func main() {
 	zlogger := zerolog.New(zerolog.ConsoleWriter{Out: os.Stderr}).With().Timestamp().Logger()
 
 	// Set log level from flag
-	level, err := zerolog.ParseLevel(*logLevel)
-	if err != nil {
-		level = zerolog.InfoLevel // default to info if invalid/empty
-	}
-	zlogger = zlogger.Level(level)
+	zlogger = zlogger.Level(parseLogLevel(*logLevel))
 	zlog.Logger = zlogger
 
 	// open sqlite (the logger is set up first so migration messages use it)
@@ -240,6 +236,17 @@ const (
 )
 
 // newHTTPServer returns the HTTP server with timeouts and a header size limit.
+// parseLogLevel maps LOG_LEVEL to a zerolog level and falls back to info when
+// it is empty or invalid. zerolog.ParseLevel("") returns NoLevel without an
+// error, and a logger at NoLevel drops every info, warn and error line.
+func parseLogLevel(s string) zerolog.Level {
+	level, err := zerolog.ParseLevel(s)
+	if err != nil || level == zerolog.NoLevel {
+		return zerolog.InfoLevel
+	}
+	return level
+}
+
 func newHTTPServer(addr string, handler http.Handler) *http.Server {
 	return &http.Server{
 		Addr:              addr,
