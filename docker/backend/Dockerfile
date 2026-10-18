@@ -32,5 +32,7 @@ RUN apk add --no-cache ca-certificates wget curl
 COPY --from=builder /bin/bot /bin/bot
 VOLUME /data
 WORKDIR /data
+# The binary has no default database path; keep the database on the volume.
+ENV DB_PATH=/data/bot.db
 EXPOSE 8080
 ENTRYPOINT ["/bin/bot"]
