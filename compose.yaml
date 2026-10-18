@@ -4,6 +4,9 @@ services:
       context: ./backend/bot
       dockerfile: ../../docker/backend/Dockerfile
     restart: unless-stopped
+    # Longer than the bot's 15 s shutdown budget (shutdownTimeout in main.go): Docker's default
+    # of 10 s would SIGKILL it while the event workers still drain queued beer messages.
+    stop_grace_period: 20s
     volumes:
       - ./backend/bot/data:/data
     env_file:
