@@ -108,7 +108,7 @@ ok, err := store.TryMarkEventProcessed(eventID, ts)
 if !ok { return } // Already processed
 // Now safe to process
 ```
-`processed_events` only needs to cover Slack's redelivery window (minutes). Records older than `PROCESSED_EVENTS_RETENTION_DAYS` (default 30, minimum 1) are pruned daily (`RunProcessedEventsPruner`), so dedup only applies to events redelivered within that window.
+`processed_events` only needs to cover Slack's redelivery window (minutes). Records older than `PROCESSED_EVENTS_RETENTION_DAYS` (default 30, 1–3650 days) are pruned daily (`RunProcessedEventsPruner`), so dedup only applies to events redelivered within that window.
 
 ### User Caching (two layers)
 - **Backend:** `user_cache` SQLite table — survives restarts, allows showing deactivated Slack users
@@ -133,7 +133,7 @@ Components fetch via `/api/proxy/{endpoint}`. The `Leaderboard.tsx` component us
 - `APP_TOKEN` — Slack App-Level Token (needs `connections:write`)
 - `API_TOKEN` — Bearer token for REST API auth
 - `DB_PATH` — SQLite database path (default: `/data/bot.db`)
-- `PROCESSED_EVENTS_RETENTION_DAYS` — days to keep `processed_events` dedup records (default: `30`, whole number ≥ 1; an invalid value stops the bot at startup)
+- `PROCESSED_EVENTS_RETENTION_DAYS` — days to keep `processed_events` dedup records (default: `30`, whole days from 1 to 3650; flag `-processed-events-retention-days` overrides it; an invalid value stops the bot at startup)
 - `PORT` — HTTP server port (default: `8080`)
 
 **Frontend (via compose):**

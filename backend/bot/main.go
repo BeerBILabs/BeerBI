@@ -44,14 +44,12 @@ func main() {
 	}
 	maxPerDay := flag.Int("max-per-day", maxPerDayDefault, "max beers a user may give per day") //nolint:typecheck // Used in daily limit checks
 
-	retentionDefault, err := ParseRetentionDays(os.Getenv("PROCESSED_EVENTS_RETENTION_DAYS"))
-	if err != nil {
-		log.Fatalf("PROCESSED_EVENTS_RETENTION_DAYS: %v", err)
-	}
-	retentionDays := flag.Int("processed-events-retention-days", retentionDefault, "days to keep Slack event deduplication records (processed_events)")
+	retentionFlag := flag.String("processed-events-retention-days", os.Getenv("PROCESSED_EVENTS_RETENTION_DAYS"), "days to keep Slack event deduplication records (processed_events), 1-3650, default 30")
 	flag.Parse()
-	if *retentionDays < 1 {
-		log.Fatalf("processed-events-retention-days must be >= 1, got %d", *retentionDays)
+	// Validated once, after the flag (which defaults to the env value) is known.
+	retentionDays, err := ParseRetentionDays(*retentionFlag)
+	if err != nil {
+		log.Fatalf("processed-events-retention-days / PROCESSED_EVENTS_RETENTION_DAYS: %v", err)
 	}
 
 	if *botToken == "" || *appToken == "" || *channelID == "" {
@@ -175,8 +173,8 @@ func main() {
 	slackManager.StartWithReconnection(ctx, eventProcessor.HandleEvent)
 
 	// Prune Slack event deduplication records older than the retention, daily.
-	zlogger.Info().Int("retention_days", *retentionDays).Msg("processed_events pruning enabled")
-	go store.RunProcessedEventsPruner(ctx, 24*time.Hour, time.Duration(*retentionDays)*24*time.Hour)
+	zlogger.Info().Int("retention_days", retentionDays).Msg("processed_events pruning enabled")
+	go store.RunProcessedEventsPruner(ctx, 24*time.Hour, retentionDays)
 
 	// Refresh planner statistics where needed (PRAGMA optimize), hourly.
 	go store.RunOptimizer(ctx, time.Hour)

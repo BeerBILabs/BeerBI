@@ -413,28 +413,33 @@ func (s *SQLiteStore) PruneProcessedEvents(cutoff time.Time) (int64, error) {
 // kept when PROCESSED_EVENTS_RETENTION_DAYS is not set.
 const DefaultProcessedEventsRetentionDays = 30
 
+// MaxProcessedEventsRetentionDays caps the retention (ten years). Without a
+// cap a huge value would overflow a time.Duration and put the cutoff in the
+// future, pruning every record.
+const MaxProcessedEventsRetentionDays = 3650
+
 // ParseRetentionDays parses a processed_events retention in whole days (the
 // value of PROCESSED_EVENTS_RETENTION_DAYS). Empty means the default; anything
-// else must be an integer >= 1, because a shorter window than Slack's
-// redelivery would break deduplication.
+// else must be an integer from 1 (a shorter window than Slack's redelivery
+// would break deduplication) to MaxProcessedEventsRetentionDays.
 func ParseRetentionDays(v string) (int, error) {
 	v = strings.TrimSpace(v)
 	if v == "" {
 		return DefaultProcessedEventsRetentionDays, nil
 	}
 	days, err := strconv.Atoi(v)
-	if err != nil || days < 1 {
-		return 0, fmt.Errorf("processed_events retention must be a whole number of days >= 1, got %q", v)
+	if err != nil || days < 1 || days > MaxProcessedEventsRetentionDays {
+		return 0, fmt.Errorf("processed_events retention must be a whole number of days from 1 to %d, got %q", MaxProcessedEventsRetentionDays, v)
 	}
 	return days, nil
 }
 
-// RunProcessedEventsPruner prunes processed_events records older than maxAge
-// right away and then every interval, until ctx is cancelled. Run it in its
-// own goroutine; it returns when ctx is done.
-func (s *SQLiteStore) RunProcessedEventsPruner(ctx context.Context, interval, maxAge time.Duration) {
+// RunProcessedEventsPruner prunes processed_events records older than
+// retentionDays calendar days right away and then every interval, until ctx is
+// cancelled. Run it in its own goroutine; it returns when ctx is done.
+func (s *SQLiteStore) RunProcessedEventsPruner(ctx context.Context, interval time.Duration, retentionDays int) {
 	prune := func() {
-		n, err := s.PruneProcessedEvents(time.Now().Add(-maxAge))
+		n, err := s.PruneProcessedEvents(time.Now().AddDate(0, 0, -retentionDays))
 		if err != nil {
 			zlog.Error().Err(err).Msg("processed_events prune failed")
 			return

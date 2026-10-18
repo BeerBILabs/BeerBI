@@ -1,9 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -40,6 +43,40 @@ func TestTimelineHandler_SingleSeries(t *testing.T) {
 	}
 }
 
+// The combined analytics response carries the same single-series points:
+// every timeline entry has exactly the keys "date" and "count".
+func TestCombinedAnalyticsHandler_TimelineKeys(t *testing.T) {
+	s := newTestStore(t)
+	at := time.Date(2024, 2, 29, 10, 0, 0, 0, time.UTC)
+	if err := s.AddBeer("UA", "UB", "1709200800.000001", at, 4); err != nil {
+		t.Fatal(err)
+	}
+	h := NewAPIHandlers(s, nil, nil, nil, zerolog.Nop())
+
+	rec := httptest.NewRecorder()
+	h.CombinedAnalyticsHandler(rec, httptest.NewRequest(http.MethodGet, "/api/stats/combined?start=2024-02-01&end=2024-02-29", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, body %q", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Timeline []map[string]any `json:"timeline"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(body.Timeline) != 1 {
+		t.Fatalf("timeline = %v, want one point", body.Timeline)
+	}
+	p := body.Timeline[0]
+	keys := slices.Sorted(maps.Keys(p))
+	if !slices.Equal(keys, []string{"count", "date"}) {
+		t.Errorf("timeline[0] keys = %v, want [count date]", keys)
+	}
+	if p["date"] != "2024-02-29" || p["count"] != float64(4) {
+		t.Errorf("timeline[0] = %v, want date 2024-02-29, count 4", p)
+	}
+}
+
 func TestParseRetentionDays(t *testing.T) {
 	cases := []struct {
 		in      string
@@ -55,6 +92,9 @@ func TestParseRetentionDays(t *testing.T) {
 		{"-3", 0, true},
 		{"30d", 0, true},
 		{"1.5", 0, true},
+		{"3650", 3650, false},
+		{"3651", 0, true},
+		{"106752", 0, true}, // would overflow time.Duration as days*24h
 	}
 	for _, c := range cases {
 		got, err := ParseRetentionDays(c.in)

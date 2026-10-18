@@ -349,7 +349,7 @@ func TestRunProcessedEventsPruner(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		s.RunProcessedEventsPruner(ctx, 10*time.Millisecond, 24*time.Hour)
+		s.RunProcessedEventsPruner(ctx, 10*time.Millisecond, 1)
 		close(done)
 	}()
 
