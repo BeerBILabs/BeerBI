@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { backendApiUrl, backendAuthHeaders } from '@/lib/server/backend'
 import type { LeaderboardResponse, TopUsersResult } from '@/lib/statsTypes'
@@ -11,8 +12,9 @@ import type { LeaderboardResponse, TopUsersResult } from '@/lib/statsTypes'
 // Caching: the backend marks each /stats/top answer with Cache-Control (long max-age for closed
 // periods, short for the running one). The combined response may be cached by the browser for the
 // shorter of the two max-age values, always `private`; if either part gives no max-age (or says
-// no-store/no-cache), or the comparison period failed, it is not cached. The combined body has no
-// ETag of its own (conditional requests are not forwarded).
+// no-store/no-cache), or the comparison period failed, it is not cached. A cacheable response also
+// gets an ETag derived from the backend ETags of its parts; a matching If-None-Match is answered
+// with 304 (the backend is still asked, so a changed period is never missed).
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const DEFAULT_LIMIT = 100
@@ -22,7 +24,7 @@ function badRequest(message: string) {
   return NextResponse.json({ error: message }, { status: 400 })
 }
 
-type TopFetch = { data: TopUsersResult; maxAge: number | null }
+type TopFetch = { data: TopUsersResult; maxAge: number | null; etag: string | null }
 
 /** Seconds a response may be cached for according to its Cache-Control, or null if not at all. */
 function cacheableSeconds(cacheControl: string | null): number | null {
@@ -45,7 +47,23 @@ async function fetchTop(start: string, end: string, limit: number): Promise<TopF
   return {
     data: { givers: data?.givers ?? [], recipients: data?.recipients ?? [] },
     maxAge: cacheableSeconds(resp.headers.get('cache-control')),
+    etag: resp.headers.get('etag'),
   }
+}
+
+/** Strong ETag of the combined response, or null if a part has none. */
+function combinedETag(parts: TopFetch[]): string | null {
+  if (parts.some((p) => !p.etag)) return null
+  const hash = createHash('sha256')
+  for (const p of parts) hash.update(`${p.etag}\n`)
+  return `"lb-${hash.digest('hex').slice(0, 32)}"`
+}
+
+/** Weak comparison of If-None-Match (a list of tags or `*`) against one ETag. */
+function etagMatches(ifNoneMatch: string | null, etag: string): boolean {
+  if (!ifNoneMatch) return false
+  const opaque = (tag: string) => tag.trim().replace(/^W\//, '')
+  return ifNoneMatch.split(',').some((tag) => tag.trim() === '*' || opaque(tag) === opaque(etag))
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
@@ -80,10 +98,20 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const prev = previous.status === 'fulfilled' ? previous.value : null
   const body: LeaderboardResponse = { current: current.value.data, previous: prev?.data ?? null }
 
-  const parts = [current.value.maxAge]
-  if (prevStart !== null) parts.push(prev ? prev.maxAge : null)
-  const maxAge = parts.every((s): s is number => s !== null) ? Math.min(...parts) : null
-  return NextResponse.json(body, {
-    headers: { 'Cache-Control': maxAge === null ? 'private, no-store' : `private, max-age=${maxAge}` },
-  })
+  const ages = [current.value.maxAge]
+  if (prevStart !== null) ages.push(prev ? prev.maxAge : null)
+  const maxAge = ages.every((s): s is number => s !== null) ? Math.min(...ages) : null
+  if (maxAge === null) {
+    return NextResponse.json(body, { headers: { 'Cache-Control': 'private, no-store' } })
+  }
+
+  const headers: Record<string, string> = { 'Cache-Control': `private, max-age=${maxAge}` }
+  const etag = combinedETag(prev ? [current.value, prev] : [current.value])
+  if (etag) {
+    headers.ETag = etag
+    if (etagMatches(request.headers.get('if-none-match'), etag)) {
+      return new NextResponse(null, { status: 304, headers })
+    }
+  }
+  return NextResponse.json(body, { headers })
 }

@@ -291,6 +291,8 @@ class UserDataManager {
         `/api/proxy/user?user=${encodeURIComponent(userId)}`
       );
 
+      // 404 (unknown user) and 503 (Slack lookup still running, `Retry-After`) are not cached:
+      // the next call asks again.
       if (!response.ok) {
         return null;
       }

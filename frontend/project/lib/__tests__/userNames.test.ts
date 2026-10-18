@@ -39,18 +39,6 @@ describe('user refs', () => {
     ]);
   });
 
-  it('still accepts the camelCase draft fields', () => {
-    expect(topUserRefs([{ userId: 'U1', count: 1, name: 'Alice Example', avatar: null }])).toEqual([
-      { id: 'U1', name: 'Alice Example', avatar: null },
-    ]);
-    expect(
-      pairUserRefs([{ giver: 'U1', recipient: 'U2', count: 1, giverName: 'Alice Example', recipientAvatar: 'x' }])
-    ).toEqual([
-      { id: 'U1', name: 'Alice Example', avatar: undefined },
-      { id: 'U2', name: undefined, avatar: 'x' },
-    ]);
-  });
-
   it('knownUserNames takes inline names, then cached names, and skips the rest', () => {
     setCachedUser('U2', 'Bob Example', null);
     expect(knownUserNames([{ id: 'U1', name: 'Alice Example' }, { id: 'U2' }, { id: 'U3' }, { id: '' }])).toEqual({

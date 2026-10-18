@@ -26,7 +26,7 @@ See [root README](../README.md) for full setup instructions.
 The browser only talks to Next.js route handlers, which call the backend at `BACKEND_BASE` with `API_TOKEN`:
 
 - `/api/proxy/<path>` passes requests through to the backend `/api/<path>` (streams the body, forwards caching headers, never forwards a browser `Authorization` header).
-- `/api/leaderboard?start=&end=[&prev_start=&prev_end=]` returns `{ current, previous }`: one request per leaderboard, the previous quarter (for rank changes) is fetched in parallel on the server.
+- `/api/leaderboard?start=&end=[&prev_start=&prev_end=]` returns `{ current, previous }`: one request per leaderboard, the previous quarter (for rank changes) is fetched in parallel on the server. It passes on the backend caching as `Cache-Control: private, max-age=<shorter max-age>` plus an `ETag` built from the backend ETags (304 on a match).
 
 User names are taken from the stats responses when the backend includes them (`real_name`/`profile_image` per top-user row, `giver_name`/`giver_image`/`recipient_name`/`recipient_image` per pair; a name without an image means no avatar); otherwise they are resolved through `/api/proxy/users?ids=` and cached in localStorage for 7 days.
 

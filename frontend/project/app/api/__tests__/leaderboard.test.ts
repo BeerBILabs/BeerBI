@@ -128,4 +128,48 @@ describe('GET /api/leaderboard caching', () => {
     const resp = await get(both);
     expect(resp.headers.get('cache-control')).toBe('private, no-store');
   });
+
+  function tagged(body: unknown, etag: string, cacheControl = 'private, max-age=60') {
+    return Response.json(body, { headers: { 'Cache-Control': cacheControl, ETag: etag } });
+  }
+  function getWith(query: string, ifNoneMatch: string) {
+    return GET(
+      new NextRequest(`http://localhost:3000/api/leaderboard?${query}`, { headers: { 'If-None-Match': ifNoneMatch } })
+    );
+  }
+
+  it('derives an ETag from the backend ETags and answers a match with 304', async () => {
+    fetchMock.mockResolvedValueOnce(tagged(top('C'), '"c1"')).mockResolvedValueOnce(tagged(top('P'), '"p1"'));
+    const first = await get(both);
+    const etag = first.headers.get('etag');
+    expect(etag).toMatch(/^"lb-[0-9a-f]{32}"$/);
+
+    fetchMock.mockResolvedValueOnce(tagged(top('C'), '"c1"')).mockResolvedValueOnce(tagged(top('P'), '"p1"'));
+    const second = await getWith(both, `W/${etag}`);
+    expect(second.status).toBe(304);
+    expect(second.headers.get('etag')).toBe(etag);
+    expect(second.headers.get('cache-control')).toBe('private, max-age=60');
+    expect(await second.text()).toBe('');
+  });
+
+  it('sends the full body when a backend ETag changed', async () => {
+    fetchMock.mockResolvedValueOnce(tagged(top('C'), '"c1"')).mockResolvedValueOnce(tagged(top('P'), '"p1"'));
+    const etag = (await get(both)).headers.get('etag')!;
+
+    fetchMock.mockResolvedValueOnce(tagged(top('C'), '"c2"')).mockResolvedValueOnce(tagged(top('P'), '"p1"'));
+    const resp = await getWith(both, etag);
+    expect(resp.status).toBe(200);
+    expect(resp.headers.get('etag')).not.toBe(etag);
+    expect((await resp.json()).current.givers[0].userId).toBe('C');
+  });
+
+  it('sends no ETag when a part has none or the response is not cacheable', async () => {
+    fetchMock.mockResolvedValueOnce(tagged(top('C'), '"c1"')).mockResolvedValueOnce(cached(top('P'), 'private, max-age=60'));
+    expect((await get(both)).headers.get('etag')).toBeNull();
+
+    fetchMock.mockResolvedValueOnce(tagged(top('C'), '"c1"', 'no-store')).mockResolvedValueOnce(tagged(top('P'), '"p1"'));
+    const resp = await getWith(both, '*');
+    expect(resp.status).toBe(200);
+    expect(resp.headers.get('etag')).toBeNull();
+  });
 });

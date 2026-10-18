@@ -244,4 +244,15 @@ describe('userDataManager.getUsers', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(await userDataManager.getUser('')).toBeNull();
   });
+
+  it('does not remember a 503 (Slack still resolving): the next call asks again', async () => {
+    fetchMock.mockResolvedValueOnce({ ...jsonResponse({}, false), status: 503, statusText: 'Service Unavailable' });
+    expect(await userDataManager.getUser('U5')).toBeNull();
+    expect(getCachedUser('U5')).toBeNull();
+
+    fetchMock.mockImplementation(batchResponder());
+    expect((await userDataManager.getUser('U5'))?.real_name).toBe('Single U5');
+    expect(getCachedUser('U5')?.real_name).toBe('Single U5');
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
 });

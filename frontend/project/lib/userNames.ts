@@ -15,15 +15,15 @@ type BatchLookup = Pick<typeof userDataManager, "getUsers">;
 export function topUserRefs(rows: readonly TopUserStats[]): UserRef[] {
   return rows.map((r) => ({
     id: r.userId,
-    name: r.real_name ?? r.name,
-    avatar: r.profile_image ?? r.avatar,
+    name: r.real_name,
+    avatar: r.profile_image,
   }));
 }
 
 export function pairUserRefs(rows: readonly PairStats[]): UserRef[] {
   return rows.flatMap((r) => [
-    { id: r.giver, name: r.giver_name ?? r.giverName, avatar: r.giver_image ?? r.giverAvatar },
-    { id: r.recipient, name: r.recipient_name ?? r.recipientName, avatar: r.recipient_image ?? r.recipientAvatar },
+    { id: r.giver, name: r.giver_name, avatar: r.giver_image },
+    { id: r.recipient, name: r.recipient_name, avatar: r.recipient_image },
   ]);
 }
 
