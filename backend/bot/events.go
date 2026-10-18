@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"regexp"
+	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -25,6 +27,99 @@ type EventProcessor struct {
 	mentionRe     *regexp.Regexp
 	emojiRe       *regexp.Regexp
 	msgsProcessed *prometheus.CounterVec
+
+	// Worker pool (see StartWorkers). Without it, events are processed inline.
+	poolMu sync.RWMutex
+	shards []chan func()
+	closed bool
+	wg     sync.WaitGroup
+}
+
+// shardQueueSize is the number of queued events per worker before HandleEvent blocks
+// (back-pressure towards the socket mode event loop, same as the former inline processing).
+const shardQueueSize = 64
+
+// StartWorkers starts n workers that run the side effects of beer messages (daily limit check,
+// database writes, Redis update, Slack replies). An event is assigned to a worker by giver, so
+// the events of one user keep their order and the daily limit check cannot race with the
+// writes of the same user, while different users are processed in parallel. Call it once,
+// before the first event; n < 1 keeps the inline processing.
+func (ep *EventProcessor) StartWorkers(n int) {
+	if n < 1 {
+		return
+	}
+	ep.poolMu.Lock()
+	defer ep.poolMu.Unlock()
+	if ep.shards != nil || ep.closed {
+		return
+	}
+	ep.shards = make([]chan func(), n)
+	for i := range ep.shards {
+		queue := make(chan func(), shardQueueSize)
+		ep.shards[i] = queue
+		ep.wg.Add(1)
+		go func() {
+			defer ep.wg.Done()
+			for job := range queue {
+				ep.runJob(job)
+			}
+		}()
+	}
+}
+
+// runJob runs one job and keeps the worker alive if it panics.
+func (ep *EventProcessor) runJob(job func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			ep.logger.Error().Interface("panic", r).Msg("event worker recovered from panic")
+		}
+	}()
+	job()
+}
+
+// dispatch runs job on the worker for giver, or inline if no pool is running (not started or
+// already shut down).
+func (ep *EventProcessor) dispatch(giver string, job func()) {
+	ep.poolMu.RLock()
+	if !ep.closed && len(ep.shards) > 0 {
+		ep.shards[ep.shardIndex(giver)] <- job
+		ep.poolMu.RUnlock()
+		return
+	}
+	ep.poolMu.RUnlock()
+	job()
+}
+
+// shardIndex returns the worker (queue) responsible for a giver.
+func (ep *EventProcessor) shardIndex(giver string) int {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(giver))
+	return int(h.Sum32() % uint32(len(ep.shards)))
+}
+
+// Shutdown stops accepting queued work, lets the workers finish everything already queued and
+// returns when they are done or ctx expires. Events that arrive afterwards run inline.
+func (ep *EventProcessor) Shutdown(ctx context.Context) error {
+	ep.poolMu.Lock()
+	if !ep.closed {
+		ep.closed = true
+		for _, queue := range ep.shards {
+			close(queue)
+		}
+	}
+	ep.poolMu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		ep.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // NewEventProcessor creates a new EventProcessor
@@ -88,7 +183,11 @@ func (ep *EventProcessor) HandleEvent(evt socketmode.Event) {
 	}
 }
 
-// handleMessageEvent processes a Slack message event
+// handleMessageEvent checks a Slack message event, marks it as processed and hands the beer
+// handling to the worker pool.
+//
+// Deduplication stays synchronous and happens before any side effect: the event is marked in
+// TryMarkEventProcessed on the event loop, and only the first delivery is dispatched.
 func (ep *EventProcessor) handleMessageEvent(ev *slackevents.MessageEvent, envelopeID string) {
 	// limit to the configured channel and only user messages
 	if ev.Channel != ep.channelID || ev.User == "" {
@@ -163,6 +262,12 @@ func (ep *EventProcessor) handleMessageEvent(ev *slackevents.MessageEvent, envel
 		return
 	}
 
+	ep.dispatch(ev.User, func() { ep.giveBeers(ev, recipientBeers, totalBeersToGive) })
+}
+
+// giveBeers enforces the daily limit, stores the beers, updates Redis and confirms in the
+// channel. The event is already marked as processed (see handleMessageEvent).
+func (ep *EventProcessor) giveBeers(ev *slackevents.MessageEvent, recipientBeers map[string]int, totalBeersToGive int) {
 	client := ep.slackManager.GetClient()
 	today := time.Now().UTC().Format("2006-01-02")
 	givenToday, err := ep.store.CountGivenOnDate(ev.User, today)
@@ -212,10 +317,10 @@ func (ep *EventProcessor) handleMessageEvent(ev *slackevents.MessageEvent, envel
 				ctx := context.Background()
 
 				// Increment beer stats in Redis (write-through cache)
-				if err := ep.redisCache.IncrementGivenStats(ctx, ev.User, count); err != nil {
+				if err := ep.redisCache.IncrementGivenStatsAt(ctx, ev.User, count, eventTime); err != nil {
 					ep.logger.Warn().Err(err).Str("giver", ev.User).Int("count", count).Msg("failed to increment given stats in redis")
 				}
-				if err := ep.redisCache.IncrementReceivedStats(ctx, recipient, count); err != nil {
+				if err := ep.redisCache.IncrementReceivedStatsAt(ctx, recipient, count, eventTime); err != nil {
 					ep.logger.Warn().Err(err).Str("recipient", recipient).Int("count", count).Msg("failed to increment received stats in redis")
 				}
 			}
@@ -232,5 +337,4 @@ func (ep *EventProcessor) handleMessageEvent(ev *slackevents.MessageEvent, envel
 			}
 		}
 	}
-	// event was pre-marked via TryMarkEventProcessed
 }
