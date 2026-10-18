@@ -86,4 +86,15 @@ describe('useLatestRequest when a key comes back', () => {
     await act(async () => calls[2].resolve('A'));
     expect(result.current).toEqual({ data: 'A', dataKey: 'a', isFetching: false, error: null });
   });
+
+  it('starts no new request on a re-render with the same key', async () => {
+    const { load, calls } = controllableLoader();
+    const { result, rerender } = renderHook(({ k }) => useLatestRequest(k, load), { initialProps: { k: 'a' } });
+    await act(async () => calls[0].resolve('A'));
+
+    rerender({ k: 'a' });
+    rerender({ k: 'a' });
+    expect(calls).toHaveLength(1);
+    expect(result.current).toEqual({ data: 'A', dataKey: 'a', isFetching: false, error: null });
+  });
 });

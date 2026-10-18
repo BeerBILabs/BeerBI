@@ -20,7 +20,7 @@ const loadNetworkChart = () => import("@/components/charts/NetworkChart").then((
 const ActivityChart = dynamic(loadActivityChart, {
   ssr: false,
   loading: () => (
-    <ChartSkeleton title="Activity Over Time" subtitle="Beer giving and receiving trends" skeletonHeight="h-72" />
+    <ChartSkeleton title="Activity Over Time" subtitle="Beers given per period" skeletonHeight="h-72" />
   ),
 });
 // Two entries for the same module so each placeholder carries the right heading.

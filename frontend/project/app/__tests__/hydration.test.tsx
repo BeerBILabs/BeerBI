@@ -79,5 +79,17 @@ describe('hydration of prerendered pages after a date change', () => {
     expect(mismatchLogs).toEqual([]);
     expect(screen.getByLabelText('Start date')).toHaveValue('2027-01-01');
     expect(screen.getByLabelText('End date')).toHaveValue('2027-01-10');
+
+    // The page starts loading the chart chunks right after hydration. Wait for them, otherwise
+    // the imports finish after the test environment is torn down (EnvironmentTeardownError).
+    await act(async () => {
+      await Promise.all([
+        import('@/components/charts/ActivityChart'),
+        import('@/components/charts/LeaderboardChart'),
+        import('@/components/charts/QuarterlyChart'),
+        import('@/components/charts/ActivityHeatmap'),
+        import('@/components/charts/NetworkChart'),
+      ]);
+    });
   });
 });

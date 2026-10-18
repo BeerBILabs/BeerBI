@@ -19,7 +19,7 @@ env:
   # and line coverage (%) for the frontend.
   # Set to the current level; raise them as tests are added.
   BACKEND_COVERAGE_THRESHOLD: 81
-  FRONTEND_COVERAGE_THRESHOLD: 70
+  FRONTEND_COVERAGE_THRESHOLD: 80
 
 jobs:
   changes:

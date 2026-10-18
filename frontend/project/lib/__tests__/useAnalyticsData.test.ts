@@ -6,7 +6,7 @@ type Call = { url: string; signal: AbortSignal; resolve: (body: unknown, ok?: bo
 const calls: Call[] = [];
 
 function data(tag: string) {
-  return { timeline: [{ date: tag, given: 1, received: 1 }], top_givers: [], top_recipients: [], heatmap: [], pairs: [] };
+  return { timeline: [{ date: tag, count: 1 }], top_givers: [], top_recipients: [], heatmap: [], pairs: [] };
 }
 
 beforeEach(() => {
