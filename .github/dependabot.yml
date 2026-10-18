@@ -1,0 +1,80 @@
+# Weekly dependency updates. Minor and patch updates are grouped into one PR per
+# ecosystem; major updates arrive as single PRs so breaking changes stay reviewable.
+# Security updates are not affected by the limits below.
+version: 2
+
+updates:
+  - package-ecosystem: gomod
+    directory: /backend/bot
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build(deps)"
+    groups:
+      go-minor-patch:
+        update-types: [minor, patch]
+
+  # bun.lock (text lockfile, Bun >= 1.2) is supported by the bun ecosystem.
+  - package-ecosystem: bun
+    directory: /frontend/project
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(frontend)"
+    groups:
+      frontend-minor-patch:
+        update-types: [minor, patch]
+
+  # Base images in docker/backend/Dockerfile, docker/frontend/Dockerfile and Dockerfile.dev.
+  - package-ecosystem: docker
+    directories:
+      - /docker/backend
+      - /docker/frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "build(docker)"
+    groups:
+      docker-minor-patch:
+        update-types: [minor, patch]
+
+  # Images referenced in compose*.yaml (Redis).
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "build(docker)"
+    groups:
+      compose-minor-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: Europe/Berlin
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "ci"
+    groups:
+      actions-minor-patch:
+        update-types: [minor, patch]
