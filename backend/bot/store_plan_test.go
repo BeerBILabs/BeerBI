@@ -133,7 +133,11 @@ func statRows(t *testing.T, s *SQLiteStore, idx string) int {
 	if err := s.db.QueryRow(`SELECT stat FROM sqlite_stat1 WHERE idx = ?`, idx).Scan(&stat); err != nil {
 		t.Fatalf("read sqlite_stat1 for %s: %v", idx, err)
 	}
-	n, err := strconv.Atoi(strings.Fields(stat)[0])
+	fields := strings.Fields(stat)
+	if len(fields) == 0 {
+		t.Fatalf("empty sqlite_stat1 entry for %s", idx)
+	}
+	n, err := strconv.Atoi(fields[0])
 	if err != nil {
 		t.Fatalf("parse stat %q: %v", stat, err)
 	}

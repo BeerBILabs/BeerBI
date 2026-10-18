@@ -70,9 +70,10 @@ func NewSQLiteStore(db *sql.DB) (*SQLiteStore, error) {
 		return nil, err
 	}
 	// Refresh statistics that went stale while the bot was down or since the
-	// first ANALYZE on a then-small table (see Optimize).
+	// first ANALYZE on a then-small table (see Optimize). Stale statistics only
+	// cost speed, so a failure does not stop the bot.
 	if err := s.Optimize(); err != nil {
-		return nil, err
+		zlog.Warn().Err(err).Msg("sqlite optimize at startup failed")
 	}
 	return s, nil
 }
@@ -324,6 +325,9 @@ func (s *SQLiteStore) analyzeIfNeeded(force bool) error {
 	}
 	defer func() { _ = conn.Close() }()
 	started := time.Now()
+	// openDB already sets analysis_limit on every connection; set it again on
+	// this connection as a safeguard for a *sql.DB opened elsewhere, because a
+	// full ANALYZE of a large table at startup can take minutes.
 	if _, err := conn.ExecContext(ctx, `PRAGMA analysis_limit = 1000`); err != nil {
 		return fmt.Errorf("migrate analysis_limit: %w", err)
 	}

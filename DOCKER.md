@@ -52,7 +52,7 @@ Images are built for:
 - `linux/amd64` (Intel/AMD)
 - `linux/arm64` (Apple Silicon/ARM)
 
-The backend is pure Go (`CGO_ENABLED=0`, SQLite via `modernc.org/sqlite`): its builder stage runs on the build platform and cross-compiles for each target, so no QEMU emulation or C toolchain is involved.
+The backend is pure Go (`CGO_ENABLED=0`, SQLite via `modernc.org/sqlite`): its builder stage runs on the build platform and cross-compiles for each target, so the Go build needs neither QEMU nor a C toolchain. Only the small runtime stage (`apk add` of ca-certificates, wget, curl) still runs under QEMU for the non-native platform.
 
 ### Database files
 

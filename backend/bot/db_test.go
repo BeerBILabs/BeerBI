@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -23,12 +25,13 @@ func TestOpenDB_PragmasOnEveryConnection(t *testing.T) {
 
 	ctx := context.Background()
 	want := map[string]string{
-		"journal_mode": "wal",
-		"busy_timeout": "5000",
-		"synchronous":  "1", // NORMAL
-		"foreign_keys": "1",
-		"cache_size":   "-16000",
-		"temp_store":   "2", // MEMORY
+		"journal_mode":   "wal",
+		"busy_timeout":   "5000",
+		"synchronous":    "1", // NORMAL
+		"foreign_keys":   "1",
+		"cache_size":     "-16000",
+		"temp_store":     "2", // MEMORY
+		"analysis_limit": "1000",
 	}
 	// Hold maxOpenConns connections at once so each one is a distinct conn.
 	for i := range maxOpenConns {
@@ -61,6 +64,77 @@ func TestOpenDB_FailsOnUnusablePath(t *testing.T) {
 	if _, err := openDB(filepath.Join(t.TempDir(), "missing-dir", "bot.db")); err == nil {
 		t.Error("openDB in a missing directory succeeded, want error")
 	}
+}
+
+// openDB must start transactions with BEGIN IMMEDIATE: an open transaction
+// holds the write lock even before its first statement, so a second writer
+// with busy_timeout(0) gets SQLITE_BUSY at once. The control case shows the
+// same scenario succeeds with SQLite's default (deferred) BEGIN, so the test
+// really detects the _txlock setting.
+func TestOpenDB_TransactionsBeginImmediate(t *testing.T) {
+	foreignWrite := func(t *testing.T, path string) error {
+		t.Helper()
+		other, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(0)")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = other.Close() }()
+		_, err = other.Exec(`INSERT INTO emoji_counts (user_id, emoji, count) VALUES ('UX', ':beer:', 1)`)
+		return err
+	}
+	isBusy := func(err error) bool {
+		return err != nil && (strings.Contains(err.Error(), "SQLITE_BUSY") || strings.Contains(err.Error(), "database is locked"))
+	}
+
+	t.Run("openDB", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "immediate.db")
+		db, err := openDB(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = db.Close() })
+		if _, err := NewSQLiteStore(db); err != nil {
+			t.Fatal(err)
+		}
+		tx, err := db.Begin()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := foreignWrite(t, path); !isBusy(err) {
+			t.Errorf("foreign write during an empty transaction: err = %v, want SQLITE_BUSY", err)
+		}
+		if err := tx.Rollback(); err != nil {
+			t.Fatal(err)
+		}
+		if err := foreignWrite(t, path); err != nil {
+			t.Errorf("foreign write after rollback: %v", err)
+		}
+	})
+
+	t.Run("control: deferred BEGIN takes no lock", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "deferred.db")
+		db, err := openDB(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := NewSQLiteStore(db); err != nil {
+			t.Fatal(err)
+		}
+		_ = db.Close()
+		deferred, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(0)")
+		if err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = deferred.Close() })
+		tx, err := deferred.Begin()
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback() }()
+		if err := foreignWrite(t, path); err != nil {
+			t.Errorf("foreign write during a deferred transaction: %v (control case broken)", err)
+		}
+	})
 }
 
 // Writers (the bot) and readers (dashboards) run concurrently without
@@ -131,7 +205,7 @@ func TestStore_OptimizeAndClose(t *testing.T) {
 	if err := db.Ping(); err == nil {
 		t.Error("db still usable after Close")
 	}
-	// Optimize on a closed store fails; Close still reports the close result.
+	// Optimize on a closed store fails.
 	if err := s.Optimize(); err == nil {
 		t.Error("Optimize on closed db succeeded")
 	}
